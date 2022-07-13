@@ -29,4 +29,6 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --model_weights_path_phase2 ./weights/S1200_tranformer_reconstruction.pth
+# Phase4 : test
+# have some problems here
+srun python main.py --model_weights_path_phase3 ./weights/S1200_fine_tune_binary_classification.pth

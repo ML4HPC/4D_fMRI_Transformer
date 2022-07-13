@@ -95,6 +95,9 @@ def get_arguments(base_path):
     parser.add_argument('--workers_phase3', default=0)
     parser.add_argument('--model_weights_path_phase2', default=None)
     
+    ##phase 4 (test)
+    parser.add_argument('--model_weights_path_phase3', default=None)
+    
     
     args = parser.parse_args()
     return args
@@ -150,6 +153,30 @@ def _get_sync_file():
         sync_file = 'file://%s/pytorch_sync.%s.%s' % (
             sync_file_dir, os.environ['SLURM_JOB_ID'], os.environ['SLURM_STEP_ID'])
         return sync_file
+
+def weight_loader(args):
+    if (args.model_weights_path_phase3 != None) and (os.path.exists(args.model_weights_path_phase3)):
+        model_weights_path = args.model_weights_path_phase3
+        step = 'test'
+        task = None
+    elif (args.model_weights_path_phase2 != None) and (os.path.exists(args.model_weights_path_phase2)):
+        model_weights_path = args.model_weights_path_phase2
+        step = '3'
+        task = 'fine_tune_{}'.format(args.fine_tune_task)
+    elif (args.model_weights_path_phase1 != None) and (os.path.exists(args.model_weights_path_phase1)):
+        model_weights_path = args.model_weights_path_phase1
+        step = '2'
+        task = 'tranformer_reconstruction'
+    else:
+        model_weights_path = None
+        step = '1'
+        task = 'autoencoder_reconstruction'
+    
+    print(f'loading weight from {model_weights_path}')
+    return model_weights_path, step, task
+    
+    
+
     
 def main(base_path):
     args = get_arguments(base_path)
@@ -186,29 +213,17 @@ def main(base_path):
             pass
         builtins.print = print_pass
     
-    # pretrain step1
-    print('starting phase 1...')
-    ## if model_weights_path_phase1 is given, then ignore this code (line 192)
-    #model_weights_path_phase1 = run_phase(args,None,'1','autoencoder_reconstruction')
-    print('finishing phase 1...')
-    #pretrain step2
-    print('starting phase 2...')
-    #model_weights_path_phase1 = './experiments/S1200_autoencoder_reconstruction_15_06___00_15_39/S1200_autoencoder_reconstruction_15_06___00_15_39_epoch_8_batch_index_879_BEST_val_loss.pth'
-    #model_weights_path_phase2 = run_phase(args,args.model_weights_path_phase1, '2', 'tranformer_reconstruction')
-    print('finishing phase 2...')
-    #fine tune
-    ## if model_weights_path_phase2 is given, then ignore this code (line 192)
-    # model_weights_path_phase2 = '/global/cfs/cdirs/m3898/TFF/experiments/S1200_tranformer_reconstruction_22_06___04_45_02/S1200_tranformer_reconstruction_22_06___04_45_02_epoch_4_batch_index_349_BEST_val_loss.pth'
-    print('starting phase 3...')
-    ## OOM 문제 발생 ##
-    model_weights_path_phase3 = run_phase(args, args.model_weights_path_phase2,'3','fine_tune_{}'.format(args.fine_tune_task))
-    print('finishing phase 3...')
-    #test
-    test(args, model_weights_path_phase3)
-
-
-
-
+    # load weights that you specified at the Argument
+    model_weights_path, step, task = weight_loader(args)
+    
+    if step == 'test' :
+        print(f'starting testing')
+        test(args, model_weights_path) # have some problems here
+    else:
+        print(f'starting phase{step}: {task}')
+        run_phase(args,model_weights_path,step,task)
+        print(f'finishing phase{step}: {task}')
+        
 if __name__ == '__main__':
     base_path = setup() #cuda_num=0) #현재는 gpu 0번만 쓰는 상태 -> i see - > gpu 0, 1, 2, 3으로 바꿨음.
     main(base_path)

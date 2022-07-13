@@ -29,4 +29,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --model_weights_path_phase1 '/global/cfs/cdirs/m3898/TFF/experiments/S1200_autoencoder_reconstruction_15_06___00_15_39/S1200_autoencoder_reconstruction_15_06___00_15_39_epoch_8_batch_index_879_BEST_val_loss.pth'
+srun python main.py --model_weights_path_phase1 ./weights/S1200_autoencoder.pth
