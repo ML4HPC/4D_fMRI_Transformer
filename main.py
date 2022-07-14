@@ -24,6 +24,7 @@ def get_arguments(base_path):
     notice some arguments are global and take effect for the entire three phase training process, while others are determined per phase
     """
     parser = argparse.ArgumentParser()
+    parser.add_argument('--image_path', default='./MNI_to_TRs')
     parser.add_argument('--base_path', default=base_path)
     parser.add_argument('--seed', type=int, default=55555555)
     parser.add_argument('--dataset_name', type=str, choices=['ucla','S1200'],default="S1200") 

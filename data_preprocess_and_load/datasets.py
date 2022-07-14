@@ -67,10 +67,11 @@ class BaseDataset(Dataset):
 class rest_1200_3D(BaseDataset):
     def __init__(self, **kwargs):
         self.register_args(**kwargs)
-        self.root = r'../TFF/'
+        #self.root = r'../TFF/'
+        self.data_dir = kwargs.get('image_path')
         self.meta_data = pd.read_csv(os.path.join(kwargs.get('base_path'),'data','metadata','HCP_1200_gender.csv'))
         self.meta_data_residual = pd.read_csv(os.path.join(kwargs.get('base_path'),'data','metadata','HCP_1200_precise_age.csv'))
-        self.data_dir = os.path.join(self.root, 'MNI_to_TRs')
+        # self.data_dir = os.path.join(self.root, 'MNI_to_TRs')
         self.subject_names = os.listdir(self.data_dir)
         self.label_dict = {'F': torch.tensor([0.0]), 'M': torch.tensor([1.0]), '22-25': torch.tensor([1.0, 0.0]),
                            '26-30': torch.tensor([1.0, 0.0]),
