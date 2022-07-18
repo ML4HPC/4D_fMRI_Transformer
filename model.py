@@ -313,7 +313,7 @@ class Encoder_Transformer_Decoder(BaseModel):
     def forward(self, x):
         batch_size, inChannels, W, H, D, T = x.shape
         
-        print('shape of x:', x.size()) 
+        #print('shape of x:', x.size()) 
         
         x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, inChannels, W, H, D)
         

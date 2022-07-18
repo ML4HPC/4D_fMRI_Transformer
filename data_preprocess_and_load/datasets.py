@@ -1,7 +1,7 @@
 import os
 import torch
 from torch.utils.data import Dataset
-import augmentations
+# import augmentations #commented out because of cv errors
 import pandas as pd
 from pathlib import Path
 
@@ -21,7 +21,7 @@ class BaseDataset(Dataset):
         self.sequence_stride = 1 # 어느 정도 주기로 volume을 샘플링 할 것인가
         self.sequence_length = kwargs.get('sequence_length') # 몇 개의 volume을 사용할 것인가(STEP1:1,STEP2:20,STEP3:20 마다 다름)
         self.sample_duration = self.sequence_length * self.sequence_stride #샘플링하는 대상이 되는 구간의 길이 
-        self.stride = max(round(self.stride_factor * self.sample_duration),1)
+        self.stride = max(round(self.stride_factor * self.sample_duration),1) # sequence lenghth 만큼씩 이동해서 rest_1200_3D의 init 파트의 for문에서 TR index를 불러옴
         self.TR_skips = range(0,self.sample_duration,self.sequence_stride)
 
     def get_input_shape(self):
@@ -43,7 +43,7 @@ class BaseDataset(Dataset):
         return filename
 
     def determine_TR(self,TRs_path,TR):
-        if self.random_TR:
+        if self.random_TR: #no sliding window
             possible_TRs = len(os.listdir(TRs_path)) - self.sample_duration
             #TR = 'TR_' + str(torch.randint(0,possible_TRs,(1,)).item())
             TR = 'rfMRI_LR_TR_' + str(torch.randint(0,possible_TRs,(1,)).item())
@@ -78,9 +78,7 @@ class rest_1200_3D(BaseDataset):
                            '31-35': torch.tensor([0.0, 1.0]), '36+': torch.tensor([0.0, 1.0])}  # torch.tensor([1])}
         self.subject_folders = []
         for i,subject in enumerate(os.listdir(self.data_dir)):
-            try:
-                
-                
+            try: 
                 age = torch.tensor(self.meta_data_residual[self.meta_data_residual['subject']==int(subject)]['age'].values[0])
             except Exception:
                 #deal with discrepency that a few subjects don't have exact age, so we take the mean of the age range as the exact age proxy
@@ -88,13 +86,12 @@ class rest_1200_3D(BaseDataset):
                 age = torch.tensor([float(x) for x in age.replace('+','-').split('-')]).mean()
             gender = self.meta_data[self.meta_data['Subject']==int(subject)]['Gender'].values[0]
             path_to_TRs = os.path.join(self.data_dir,subject,self.norm) # self.norm == global_normalize
-            subject_duration = len(os.listdir(path_to_TRs))#121
-            session_duration = subject_duration - self.sample_duration # 샘플링하는 길이만큼을 빼주어야 해당 인덱스~sample_duration 까지의 구간을 샘플 가능
+            subject_duration = len(os.listdir(path_to_TRs)) #sequence length of the subject
+            session_duration = subject_duration - self.sample_duration # 샘플링하는 길이만큼을 빼주어야 처음부터 sequence length - sample_duration 까지의 index를 샘플 가능. 
             filename = os.listdir(path_to_TRs)[0]
             filename = filename[:filename.find('TR')+3]
             
             #이 부분이 결정적으로 샘플링하는 부분
-            # session_duration이 20인 샘플을 추출하고 싶다면 해당 볼륨들을 하나하나 담음
             for k in range(0,session_duration,self.stride):
                 self.index_l.append((i, subject, path_to_TRs,filename + str(k),session_duration, age , gender))
 

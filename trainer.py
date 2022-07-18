@@ -3,6 +3,7 @@ from learning_rate import LrHandler
 from data_preprocess_and_load.dataloaders import DataHandler
 import torch
 import warnings
+import numpy as np
 from tqdm import tqdm
 from model import Encoder_Transformer_Decoder,Encoder_Transformer_finetune,AutoEncoder
 from losses import get_intense_voxels
@@ -58,7 +59,6 @@ class Trainer():
         #self.last_batch_idx = last_batch_idx
         
         #self.loaded_model_weights_path = model_absolute_path
-        # 이걸 epoch 9로 바꿔야 함.
         
         self.register_args(**kwargs)
         self.lr_handler = LrHandler(**kwargs)
@@ -130,16 +130,18 @@ class Trainer():
         
 
     def eval_epoch(self,set):
-        loader = self.val_loader if set == 'val' else self.test_loader # 여기서 192473개 꺼내서 4등분 해서 1배치 당 48118개 뜨는 거임. 여기를 고치자!!
-        start_time = time.time()
+        loader = self.val_loader if set == 'val' else self.test_loader 
         self.eval(set)
-        end_time = time.time()
-        print('how much time takes to execute eval(): %20ds' % (end_time - start_time)) #이건 ㄹㅇ 금방함..
-        with torch.no_grad(): #이야.. 이게 오래 걸리나보다.. 이걸 48118번 돌려야 하는 거임ㅋㅋ
-            for input_dict in tqdm(loader, position=0, leave=True):
+        with torch.no_grad():
+            times = [] 
+            for batch_idx, input_dict in enumerate(tqdm(loader, position=0, leave=True)):
+                start_time = time.time()
                 loss_dict, _ = self.forward_pass(input_dict)
-                #print('loss dict in eval_epoch:', loss_dict) # 이것도 48118개 하나씩 돌아감.. valid data loader에서 하나씩 꺼내오는 듯 하다.
-                self.writer.write_losses(loss_dict, set=set) # 너는 어디에 저장되니?
+                end_time = time.time()
+                #print('times taken to execute step {0}: {1}'.format(batch_idx,end_time-start_time))
+                times.append(end_time-start_time)
+                self.writer.write_losses(loss_dict, set=set)
+        print('time spent for validation:',np.mean(times)) 
 
 
     def testing(self):
@@ -154,14 +156,14 @@ class Trainer():
 
 
     def training(self):
-        for epoch in range(self.nEpochs): #이게 10번 돌아야 한다는 말이지?
+        for epoch in range(self.nEpochs): 
             self.train_epoch(epoch)
             self.eval_epoch('val')
-            print('______epoch summary {}/{}_____\n'.format(epoch+1,self.nEpochs)) #이게 왜 프린트가 안 되었지? 아직 epoch를 못 돌았기 때문^^
+            print('______epoch summary {}/{}_____\n'.format(epoch+1,self.nEpochs)) 
             self.writer.loss_summary(lr=self.lr_handler.schedule.get_last_lr()[0])
             self.writer.accuracy_summary(mid_epoch=False)
             self.writer.save_history_to_csv()
-            self.save_checkpoint_(epoch, len(self.train_loader)) #분명히 매 epoch마다 save checkpoint를 함.. 근데 왜 save가 안 되었냐? 아직 epoch를 못 돌았기 때문^^
+            self.save_checkpoint_(epoch, len(self.train_loader)) 
 
     # 한 epoch 안에서 실행하는 함수 . 여기서 .pth를 불러와야 할 것 같음.
     def find_file (self, files_Path):
@@ -170,7 +172,7 @@ class Trainer():
 
             written_time = os.path.getctime(f"{files_Path}{f_name}")
             file_name_and_time_lst.append((f_name, written_time))
-        # 생성시간 역순으로 정렬하고, 
+        # 생성시간 역순으로 정렬 
         sorted_file_lst = sorted(file_name_and_time_lst, key=lambda x: x[1], reverse=True)
 
         return sorted_file_lst
@@ -180,23 +182,13 @@ class Trainer():
         if self.distributed:
             self.train_loader.sampler.set_epoch(epoch)
         
-        #print('epoch is:', epoch) #epoch 아마 0으로 잡힐 것.
-        #start_time = time.time()
+        print('epoch is:', epoch) 
         self.train()
-        #end_time = time.time()
-        #print('how much time takes to execute train(): %20ds' % (end_time - start_time))
-        ### Stella added this ###
 
-        #print('last batch index is:', self.last_batch_idx) #배치를 self.validation_frequency-1 까지 올리고 아래 코드 수행함.
-        ### Stella added this ### 그럼 이제 14000부터 시작할 거임.
-        
-        for batch_idx, input_dict in enumerate(tqdm(self.train_loader,position=0,leave=True)): ### Stella changed this###
-            # if batch_idx < self.last_batch_idx+1:
-            #     batch_idx+=1
-            # else:
-            #     print('did batch index updated?', batch_idx) #13999부터 시작~~
-            
-            ### training ###
+        times = []
+        for batch_idx, input_dict in enumerate(tqdm(self.train_loader,position=0,leave=True)): 
+			### training ###
+            start_time = time.time()
             self.writer.total_train_steps += 1
             self.optimizer.zero_grad()
             loss_dict, loss = self.forward_pass(input_dict)
@@ -204,6 +196,14 @@ class Trainer():
             self.optimizer.step()
             self.lr_handler.schedule_check_and_update()
             self.writer.write_losses(loss_dict, set='train') # 이게 기록됨.
+            end_time = time.time()
+            print(f'times taken to execute step {batch_idx}: {end_time-start_time}')
+            times.append(end_time - start_time)			
+			
+			#for calculating times
+            if batch_idx == 10 : 
+                print(np.mean(times))
+                break			
 
             if (batch_idx + 1) % self.validation_frequency == 0:
                 print('batch index is:', batch_idx)
@@ -212,8 +212,8 @@ class Trainer():
 
                 ### validation ###
                 start_time = time.time()
-                self.eval_epoch('val') #이게 엄~청~ 오래 걸림 - 1 validation 당 6시간 15분 (인 지 아닌 지도 모름..^^)
-                end_time = time.time() #여기까지 가지도 못 함.
+                self.eval_epoch('val') #이게 엄~청~ 오래 걸림 
+                end_time = time.time()
                 print('how much time takes to execute eval_epoch(): %20ds' % (end_time - start_time))
                 #print('______mid-epoch summary {0:.2f}/{1:.0f}______\n'.format(partial_epoch,self.nEpochs))
                 self.writer.loss_summary(lr=self.lr_handler.schedule.get_last_lr()[0])

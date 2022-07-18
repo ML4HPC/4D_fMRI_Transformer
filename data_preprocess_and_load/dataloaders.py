@@ -18,7 +18,7 @@ class DataHandler():
         self.test = test
         self.kwargs = kwargs
         self.dataset_name = kwargs.get('dataset_name')
-        self.num_val_samples = kwargs.get('num_val_samples')
+        # self.num_val_samples = kwargs.get('num_val_samples')
         self.splits_folder = Path(kwargs.get('base_path')).joinpath('splits',self.dataset_name)
         self.splits_folder.mkdir(exist_ok=True)
         self.seed = kwargs.get('seed')
@@ -43,6 +43,7 @@ class DataHandler():
         eval_loader = dataset(**self.kwargs)
         eval_loader.augment = None
         self.subject_list = train_loader.index_l
+        #print('index_l:',self.subject_list)
         if self.current_split_exists():
             train_names, val_names, test_names = self.load_split()
             train_idx, val_idx, test_idx = self.convert_subject_list_to_idx_list(train_names,val_names,test_names,self.subject_list)

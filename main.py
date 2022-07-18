@@ -24,14 +24,14 @@ def get_arguments(base_path):
     notice some arguments are global and take effect for the entire three phase training process, while others are determined per phase
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image_path', default='./MNI_to_TRs')
+    parser.add_argument('--image_path', default='./samples')
     parser.add_argument('--base_path', default=base_path)
     parser.add_argument('--seed', type=int, default=55555555)
     parser.add_argument('--dataset_name', type=str, choices=['ucla','S1200'],default="S1200") 
-    parser.add_argument('--num_val_samples', type=int, default=10000)
+    parser.add_argument('--num_val_samples', type=int, default=1000) #10000이 default. 변화 없음.
     parser.add_argument('--cuda', default=True)
     parser.add_argument('--log_dir', type=str, default=os.path.join(base_path, 'runs')) #로그는 runs에 저장되는데..?
-    parser.add_argument('--random_TR', default=True)
+    parser.add_argument('--random_TR', default=True) #True면 전체 sequence 로부터 sampling. False 면 0번째 TR부터 sliding window
     parser.add_argument('--intensity_factor', default=1)
     parser.add_argument('--perceptual_factor', default=1)
     parser.add_argument('--reconstruction_factor', default=1)
@@ -57,7 +57,7 @@ def get_arguments(base_path):
 
     ##phase 1 - NOW ON! I think it takes so long..
     parser.add_argument('--task_phase1', type=str, default='autoencoder_reconstruction')
-    parser.add_argument('--batch_size_phase1', type=int, default=32) #이걸.. 잘게 쪼개볼까? 원래는 4였음.
+    parser.add_argument('--batch_size_phase1', type=int, default=8) #이걸.. 잘게 쪼개볼까? 원래는 4였음.
     parser.add_argument('--validation_frequency_phase1', type=int, default=10000) #원래는 1000이었음 -> 약 7분 걸릴 예정.
     parser.add_argument('--nEpochs_phase1', type=int, default=10) #epoch는 10개인 걸로~
     parser.add_argument('--augment_prob_phase1', default=0)
@@ -149,8 +149,12 @@ def test(args,model_weights_path):
 
 def _get_sync_file():
         """Logic for naming sync file using slurm env variables"""
-        sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH']
+        sync_file_dir = '%s/pytorch-sync-files' % '/scratch/kedu03' #os.environ['SCRATCH']
         os.makedirs(sync_file_dir, exist_ok=True)
+		
+		#temporally add two lines below for torch.distributed.launcher
+        os.environ['SLURM_JOB_ID'] = '12345'
+        os.environ['SLURM_STEP_ID'] = '12345'
         sync_file = 'file://%s/pytorch_sync.%s.%s' % (
             sync_file_dir, os.environ['SLURM_JOB_ID'], os.environ['SLURM_STEP_ID'])
         return sync_file
