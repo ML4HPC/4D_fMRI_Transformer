@@ -39,7 +39,8 @@ class BaseModel(nn.Module, ABC):
         hook2.remove()
 
     def register_vars(self,**kwargs):
-        intermediate_vec = 2640
+        intermediate_vec = 2640 # embedding size
+        # Dropout rates for each layer
         if kwargs.get('task') == 'fine_tune':
             self.dropout_rates = {'input': 0, 'green': 0.35,'Up_green': 0,'transformer':0.1}
         else:
@@ -205,6 +206,7 @@ class Decoder(BaseModel):
     def __init__(self,**kwargs):
         super(Decoder, self).__init__()
         self.register_vars(**kwargs)
+        # determine_shapes에서 등록한 사이즈대로 Upsample을 실행
         self.decode_block = nn.Sequential(OrderedDict([
             ('upgreen0', UpGreenBlock(self.model_depth * 8, self.model_depth * 4, self.shapes['dim_2'], self.dropout_rates['Up_green'])),
             ('upgreen1', UpGreenBlock(self.model_depth * 4, self.model_depth * 2, self.shapes['dim_1'], self.dropout_rates['Up_green'])),
@@ -275,7 +277,7 @@ class Transformer_Block(BertPreTrainedModel, BaseModel):
                             token_type_ids=None,
                             position_ids=None,
                             head_mask=None,
-                            inputs_embeds=inputs_embeds,
+                            inputs_embeds=inputs_embeds, #give our embeddings
                             encoder_hidden_states=None,
                             encoder_attention_mask=None,
                             output_attentions=None,

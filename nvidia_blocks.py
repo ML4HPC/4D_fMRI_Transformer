@@ -35,6 +35,7 @@ class GreenBlock(nn.Module):
         super(GreenBlock, self).__init__()
         self.Drop_Rate = drop_rate
         # Define block
+        # Batchnorm -> GroupNorm
         self.block = nn.Sequential(OrderedDict([
             ('group_norm0', nn.GroupNorm(num_channels=in_channels, num_groups=in_channels // 4)),
             #('norm0', nn.BatchNorm3d(num_features=in_channels)),
