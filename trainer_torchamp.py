@@ -203,15 +203,19 @@ class Trainer():
             start_time = time.time()
             self.writer.total_train_steps += 1
             self.optimizer.zero_grad()
+            if self.amp:
+                with autocast():
+                    loss_dict, loss = self.forward_pass(input_dict)
+                    #print('data type of loss:', loss.dtype)
 
-            with autocast():
+                #self.lr_handler.schedule_check_and_update()            
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+            else:
                 loss_dict, loss = self.forward_pass(input_dict)
-                #print('data type of loss:', loss.dtype)
-
-            #self.lr_handler.schedule_check_and_update()            
-            scaler.scale(loss).backward()
-            scaler.step(self.optimizer)
-            scaler.update()
+                loss.backward()
+                self.optimizer.step()
             self.lr_handler.schedule_check_and_update()
             self.writer.write_losses(loss_dict, set='train') # 이게 기록됨.
             end_time = time.time()
