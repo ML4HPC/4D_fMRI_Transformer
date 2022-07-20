@@ -5,7 +5,7 @@ from torchvision import models
 def get_intense_voxels(yy,shape):
     y = yy.clone()
     low_quantile, high_quantile, = (0.9,0.99)
-    voxels = torch.empty(shape)
+    voxels = torch.empty(shape).cuda()
     for batch in range(y.shape[0]):
         for TR in range(y.shape[-1]):
             yy = y[batch, :, :, :, TR]
