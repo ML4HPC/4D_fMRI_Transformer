@@ -225,29 +225,42 @@ class AutoEncoder(BaseModel):
         super(AutoEncoder, self).__init__()
         # ENCODING
         self.task = 'autoencoder_reconstruction'
-        self.encoder = Encoder(**kwargs)
+        self.encoder = Encoder(**kwargs).to(memory_format=torch.channels_last_3d)
         self.determine_shapes(self.encoder,dim)
         kwargs['shapes'] = self.shapes
         # BottleNeck into bert
-        self.into_bert = BottleNeck_in(**kwargs)
+        self.into_bert = BottleNeck_in(**kwargs).to(memory_format=torch.channels_last_3d)
 
         # BottleNeck out of bert
-        self.from_bert = BottleNeck_out(**kwargs)
+        self.from_bert = BottleNeck_out(**kwargs).to(memory_format=torch.channels_last_3d)
 
         # DECODER
-        self.decoder = Decoder(**kwargs)
+        self.decoder = Decoder(**kwargs).to(memory_format=torch.channels_last_3d)
 
     def forward(self, x):
-        if x.isnan().any():
-            print('nans in data!')
+        # if x.isnan().any():
+        #torch._assert(x.isnan().any(), 'nans in data!')
+            # print('nans in data!')
         batch_size, Channels_in, W, H, D, T = x.shape
         x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, Channels_in, W, H, D)
+        # changed from NCHDW to NHWDC format for accellerating
+        x = x.contiguous(memory_format=torch.channels_last_3d)
+        torch.cuda.nvtx.range_push("encoder")
         encoded  = self.encoder(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("into_bert")
         encoded = self.into_bert(encoded)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("from_bert")  
         encoded = self.from_bert(encoded)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("decoder")
         reconstructed_image = self.decoder(encoded)
+        torch.cuda.nvtx.range_pop()
         _, Channels_out, W, H, D = reconstructed_image.shape
+        torch.cuda.nvtx.range_push("reshaping")
         reconstructed_image = reconstructed_image.reshape(batch_size, T, Channels_out, W, H, D).permute(0, 2, 3, 4, 5, 1)
+        torch.cuda.nvtx.range_pop()
         return {'reconstructed_fmri_sequence': reconstructed_image}
 
 class Transformer_Block(BertPreTrainedModel, BaseModel):
@@ -297,20 +310,23 @@ class Encoder_Transformer_Decoder(BaseModel):
         self.task = 'transformer_reconstruction'
         self.register_vars(**kwargs)
         # ENCODING
-        self.encoder = Encoder(**kwargs)
+        self.encoder = Encoder(**kwargs).to(memory_format=torch.channels_last_3d)
         self.determine_shapes(self.encoder,dim)
         kwargs['shapes'] = self.shapes
+
+        # changed from NCHDW to NHWDC format for accellerating
+
         # BottleNeck into bert
-        self.into_bert = BottleNeck_in(**kwargs)
+        self.into_bert = BottleNeck_in(**kwargs).to(memory_format=torch.channels_last_3d)
 
         # transformer
-        self.transformer = Transformer_Block(self.BertConfig, **kwargs)
+        self.transformer = Transformer_Block(self.BertConfig, **kwargs).to(memory_format=torch.channels_last_3d)
 
         # BottleNeck out of bert
-        self.from_bert = BottleNeck_out(**kwargs)
+        self.from_bert = BottleNeck_out(**kwargs).to(memory_format=torch.channels_last_3d)
 
         # DECODER
-        self.decoder = Decoder(**kwargs)
+        self.decoder = Decoder(**kwargs).to(memory_format=torch.channels_last_3d)
 
     def forward(self, x):
         batch_size, inChannels, W, H, D, T = x.shape
@@ -318,12 +334,19 @@ class Encoder_Transformer_Decoder(BaseModel):
         #print('shape of x:', x.size()) 
         
         x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, inChannels, W, H, D)
+        # changed from NCHDW to NHWDC format for accellerating
+        x = x.contiguous(memory_format=torch.channels_last_3d) 
         
         encoded = self.encoder(x)
+ 
         encoded = self.into_bert(encoded)
         encoded = encoded.reshape(batch_size, T, -1)
+        torch.cuda.nvtx.range_push("transformer")
         transformer_dict = self.transformer(encoded)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("reshape")
         out = transformer_dict['sequence'].reshape(batch_size * T, -1)
+        torch.cuda.nvtx.range_pop()
         out = self.from_bert(out)
         reconstructed_image = self.decoder(out)
         reconstructed_image = reconstructed_image.reshape(batch_size, T, self.outChannels, W, H, D).permute(0, 2, 3, 4, 5, 1)
@@ -337,31 +360,38 @@ class Encoder_Transformer_finetune(BaseModel):
         self.task = kwargs.get('fine_tune_task')
         self.register_vars(**kwargs)
         # ENCODING
-        self.encoder = Encoder(**kwargs)
+        self.encoder = Encoder(**kwargs).to(memory_format=torch.channels_last_3d)
         self.determine_shapes(self.encoder, dim)
         kwargs['shapes'] = self.shapes
         # BottleNeck into bert
-        self.into_bert = BottleNeck_in(**kwargs)
+        self.into_bert = BottleNeck_in(**kwargs).to(memory_format=torch.channels_last_3d)
 
         # transformer
-        self.transformer = Transformer_Block(self.BertConfig,**kwargs)
+        self.transformer = Transformer_Block(self.BertConfig,**kwargs).to(memory_format=torch.channels_last_3d)
         # finetune classifier
-        if kwargs.get('fine_tune_task') == 'regression':
-            self.final_activation_func = nn.LeakyReLU()
-        elif kwargs.get('fine_tune_task') == 'binary_classification':
-            self.final_activation_func = nn.Sigmoid()
-            self.label_num = 1
-        self.regression_head = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.label_num),self.final_activation_func)
-
+        #if kwargs.get('fine_tune_task') == 'regression':
+        #    self.final_activation_func = nn.LeakyReLU()
+        #elif kwargs.get('fine_tune_task') == 'binary_classification':
+        #    self.final_activation_func = nn.Sigmoid()
+        #    self.label_num = 1
+        #self.regression_head = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.label_num),self.final_activation_func).to(memory_format=torch.channels_last_3d)
+        self.regression_head = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.label_num)).to(memory_format=torch.channels_last_3d)
 
     def forward(self, x):
         batch_size, inChannels, W, H, D, T = x.shape
         x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, inChannels, W, H, D)
+
+        # changed from NCHDW to NHWDC format for accellerating
+        x = x.contiguous(memory_format=torch.channels_last_3d)
         encoded = self.encoder(x)
         encoded = self.into_bert(encoded)
         encoded = encoded.reshape(batch_size, T, -1)
+        torch.cuda.nvtx.range_push("transformers")
         transformer_dict = self.transformer(encoded)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("regression head")
         CLS = transformer_dict['cls']
         prediction = self.regression_head(CLS)
+        torch.cuda.nvtx.range_pop()
         return {self.task:prediction}
 
