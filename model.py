@@ -39,7 +39,7 @@ class BaseModel(nn.Module, ABC):
         hook2.remove()
 
     def register_vars(self,**kwargs):
-        intermediate_vec = 3072 # embedding size(h) # 2640 
+        intermediate_vec = 2640 # embedding size(h) # 2640 
         # Dropout rates for each layer
         if kwargs.get('task') == 'fine_tune':
             self.dropout_rates = {'input': 0, 'green': 0.35,'Up_green': 0,'transformer':0.1}
@@ -58,9 +58,6 @@ class BaseModel(nn.Module, ABC):
         self.intermediate_vec = intermediate_vec
         self.use_cuda = kwargs.get('gpu') #'cuda'
         self.shapes = kwargs.get('shapes')
-
-
-
 
     def load_partial_state_dict(self, state_dict,load_cls_embedding):
         print('loading parameters onto new model...')
@@ -272,11 +269,11 @@ class Transformer_Block(BertPreTrainedModel, BaseModel):
         self.init_weights()
         self.cls_embedding = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.BertConfig.hidden_size), nn.LeakyReLU())
         
-
-
     def concatenate_cls(self, x):
-        self.register_buffer('cls_id', (torch.ones((x.size()[0], 1, self.BertConfig.hidden_size)) * 0.5),persistent=False)
-        cls_token = self.cls_embedding(self.cls_id.to(x.get_device()))
+        torch.cuda.nvtx.range_push("register_buffer")
+        self.register_buffer('cls_id', (torch.ones((x.size()[0], 1, self.BertConfig.hidden_size),device=x.get_device()) * 0.5),persistent=False)
+        torch.cuda.nvtx.range_pop()
+        cls_token = self.cls_embedding(self.cls_id)
         # print('Size of cls_token: ', cls_token.size())
         # print('Size of cls_id: ', self.cls_id.size())
         # print('Size of x: ', x.size())
