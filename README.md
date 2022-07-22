@@ -2,4 +2,4 @@
 
 BNL Hackathon 2022 -Team "Extreme scale spatiotemporal learning to neuroscience and genetics"
 
-don't use trainer_torchamp.py
+plz use trainer_only_torchamp.py
