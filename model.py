@@ -39,7 +39,7 @@ class BaseModel(nn.Module, ABC):
         hook2.remove()
 
     def register_vars(self,**kwargs):
-        intermediate_vec = 2640 # embedding size
+        intermediate_vec = 3072 # embedding size(h) # 2640 
         # Dropout rates for each layer
         if kwargs.get('task') == 'fine_tune':
             self.dropout_rates = {'input': 0, 'green': 0.35,'Up_green': 0,'transformer':0.1}
