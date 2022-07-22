@@ -107,6 +107,46 @@ class rest_1200_3D(BaseDataset):
             y = self.augment(y)
         return {'fmri_sequence':y,'subject':subj,'subject_binary_classification':self.label_dict[gender],'subject_regression':age,'TR':int(TR.split('_')[3])}
 
+class ABCD_3D(BaseDataset):
+    def __init__(self, **kwargs):
+        self.register_args(**kwargs)
+        #self.root = r'../TFF/'
+        self.data_dir = kwargs.get('image_path')
+        self.meta_data = pd.read_csv(os.path.join(kwargs.get('base_path'),'data','metadata','ABCD_phenotype_total.csv'))
+        # self.meta_data_residual = pd.read_csv(os.path.join(kwargs.get('base_path'),'data','metadata','HCP_1200_precise_age.csv'))
+        # self.data_dir = os.path.join(self.root, 'MNI_to_TRs')
+        self.subject_names = os.listdir(self.data_dir)
+        # self.label_dict = {'F': torch.tensor([0.0]), 'M': torch.tensor([1.0]), '22-25': torch.tensor([1.0, 0.0]),
+                           # '26-30': torch.tensor([1.0, 0.0]),
+                           # '31-35': torch.tensor([0.0, 1.0]), '36+': torch.tensor([0.0, 1.0])}  # torch.tensor([1])}
+        # 이 label dict 어쩌고 필요한가???
+        self.subject_folders = []
+        for i,subject in enumerate(os.listdir(self.data_dir)):
+            age = torch.tensor(self.meta_data[self.meta_data['subject']==int(subject)]['age'].values[0])
+            gender = self.meta_data[self.meta_data['subjectkey']==int(subject)]['sex'].values[0]
+            path_to_TRs = os.path.join(self.data_dir,subject,self.norm) # self.norm == global_normalize
+            subject_duration = len(os.listdir(path_to_TRs)) #sequence length of the subject
+            session_duration = subject_duration - self.sample_duration # 샘플링하는 길이만큼을 빼주어야 처음부터 sequence length - sample_duration 까지의 index를 샘플 가능. 
+            filename = os.listdir(path_to_TRs)[0]
+            filename = filename[:filename.find('TR')+3]
+            
+            #이 부분이 결정적으로 샘플링하는 부분
+            for k in range(0,session_duration,self.stride):
+                self.index_l.append((i, subject, path_to_TRs,filename + str(k),session_duration, age , gender))
+
+    def __len__(self):
+        N = len(self.index_l)
+        return N
+
+    def __getitem__(self, index):
+        subj, subj_name, path_to_TRs, TR , session_duration, age, gender = self.index_l[index]
+        age = self.label_dict[age] if isinstance(age,str) else age.float()
+        y = self.load_sequence(path_to_TRs,TR)
+        if self.augment is not None:
+            y = self.augment(y)
+        return {'fmri_sequence':y,'subject':subj,'subject_binary_classification':self.label_dict[gender],'subject_regression':age,'TR':int(TR.split('_')[3])}
+
+
 
 class ucla(BaseDataset):
     def __init__(self, **kwargs):

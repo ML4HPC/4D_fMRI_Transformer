@@ -16,6 +16,7 @@ from torch.cuda.amp import GradScaler, autocast
 # ASP
 #from apex.contrib.sparsity import ASP
 
+
 # for data parallel
 # torch.distributed.init_process_group(
 #      backend='nccl', world_size=4, rank=int(os.environ["LOCAL_RANK"]), store=None)
@@ -30,7 +31,7 @@ def get_arguments(base_path):
     notice some arguments are global and take effect for the entire three phase training process, while others are determined per phase
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image_path', default='./samples')
+    parser.add_argument('--image_path', default='./MNI_to_TRs') #perlmutetr: MNI_to_TRs, neuron: samples
     parser.add_argument('--base_path', default=base_path)
     parser.add_argument('--step', default='1', choices=['1','2','3'], help='which step you want to run')
     parser.add_argument('--seed', type=int, default=55555555)
@@ -128,7 +129,6 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     """
     main process that runs each training phase
     :return path to model weights (pytorch file .pth) aquried by the current training phase
-    어떻게.. last epoch pth 이름 좀 지정할 수 없나?
     """
     experiment_folder = '{}_{}_{}'.format(args.dataset_name,phase_name,datestamp()) #02_05_20_05_12: 5월 2일 20시 05분 12초
     experiment_folder = Path(os.path.join(args.base_path,'experiments',experiment_folder))
@@ -140,13 +140,13 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     args_logger(args)
     args = sort_args(phase_num, vars(args))
     S = ['train','val']
-    trainer = Trainer(sets=S,**args) #여기서 Trainer class 안에 있는 애들 다 가지고 왔는데..?
-    trainer.training() #여기서 자동으로 checkpoint save가 될텐데..?
+    trainer = Trainer(sets=S,**args)
+    trainer.training()
     if phase_num == '3' and not fine_tune_task == 'regression':
         critical_metric = 'accuracy'
     else:
         critical_metric = 'loss'
-    model_weights_path = os.path.join(trainer.writer.experiment_folder,trainer.writer.experiment_title + '_BEST_val_{}.pth'.format(critical_metric)) #여기다가.. 어떻게 partial epoch 몇 번인 지 쓸 수 없나??
+    model_weights_path = os.path.join(trainer.writer.experiment_folder,trainer.writer.experiment_title + '_BEST_val_{}.pth'.format(critical_metric))
     
     return model_weights_path
     # run해서 model_weights_path를 뽑아내는 형태. 근데 왜 BEST_val_loss.pth 같은 게 안 나오지..? 아.. 이거 다 끝나야 저장되는거구나..
@@ -159,9 +159,9 @@ def test(args,model_weights_path):
     trainer = Trainer(experiment_folder, '3', args, ['test'], model_weights_path)
     trainer.testing()
 
-def _get_sync_file():
+def _get_sync_file():    
         """Logic for naming sync file using slurm env variables"""
-        sync_file_dir = '%s/pytorch-sync-files' % '/scratch/kedu03' #os.environ['SCRATCH']
+        sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH']
         os.makedirs(sync_file_dir, exist_ok=True)
 		
 		#temporally add two lines below for torch.distributed.launcher
@@ -231,6 +231,7 @@ def main(base_path):
     ngpus_per_node = torch.cuda.device_count()
     
     if args.distributed:
+        #args.local_rank = int(os.environ['LOCAL_RANK']) #stella added this line
         if args.local_rank != -1: # for torch.distributed.launch
             args.rank = args.local_rank
             args.gpu = args.local_rank

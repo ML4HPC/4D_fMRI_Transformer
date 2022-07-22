@@ -22,9 +22,6 @@ import builtins
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 
-# ASP
-from apex.contrib.sparsity import ASP
-
 class Trainer():
     """
     main class to handle training, validation and testing.
@@ -76,7 +73,6 @@ class Trainer():
         self.create_optimizer()
         self.lr_handler.set_schedule(self.optimizer)
 
-        ASP.prune_trained_model(self.model, self.optimizer)
 
         self.writer = Writer(sets,**kwargs) #여기서 이미 writer class를 불러옴.
         self.sets = sets
@@ -96,8 +92,10 @@ class Trainer():
         weight_decay = self.kwargs.get('weight_decay')
         self.optimizer = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
 
+    #여기에 문제가 있을 것!
     def initialize_weights(self,load_cls_embedding):
         if self.loaded_model_weights_path is not None: #after autoencoder
+            print('is model loaded? if then, from which path?:', self.loaded_model_weights_path)
             state_dict = torch.load(self.loaded_model_weights_path)
             self.lr_handler.set_lr(state_dict['lr'])
             self.model.module.load_partial_state_dict(state_dict['model_state_dict'],load_cls_embedding=False)
@@ -206,9 +204,7 @@ class Trainer():
             if self.amp:
                 with autocast():
                     loss_dict, loss = self.forward_pass(input_dict)
-                    #print('data type of loss:', loss.dtype)
-
-                #self.lr_handler.schedule_check_and_update()            
+           
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
                 scaler.update()
@@ -222,10 +218,10 @@ class Trainer():
             print(f'times taken to execute step {batch_idx}: {end_time-start_time}')
             times.append(end_time - start_time)			
 			
-			#for calculating times
-            if batch_idx == 10 : 
-                print(np.mean(times))
-                break			
+#			#for calculating times
+#            if batch_idx == 10 : 
+#                print(np.mean(times))
+#                break			
 
             if (batch_idx + 1) % self.validation_frequency == 0:
                 print('batch index is:', batch_idx)
@@ -243,7 +239,7 @@ class Trainer():
                 self.writer.experiment_title = self.writer.experiment_title
                 self.writer.save_history_to_csv()
                 
-                self.save_checkpoint_(epoch, batch_idx)               
+                self.save_checkpoint_(epoch, batch_idx) # eval에서 모델 저장 (no torch grad 적용)             
                 self.train()
                 
 
@@ -268,6 +264,7 @@ class Trainer():
         else:
             return None
 
+    ## save checkpoint main function!! ##
     def save_checkpoint_(self, epoch, batch_idx):
         partial_epoch = epoch + (batch_idx / len(self.train_loader))
         
@@ -275,18 +272,19 @@ class Trainer():
         loss = self.get_last_loss()
         accuracy = self.get_last_accuracy()
         title = str(self.writer.experiment_title) + '_epoch_' + str(int(epoch)) + '_batch_index_'+ str(batch_idx) # 이 함수 안에서만 쓰도록 함~
-        self.save_checkpoint(
+        self.save_checkpoint_helper_function(
             self.writer.experiment_folder, title, partial_epoch, loss ,accuracy, self.optimizer ,schedule=self.lr_handler.schedule) #experiments에 저장
         
     
-    def save_checkpoint(self, directory, title, epoch, loss, accuracy, optimizer=None,schedule=None):
+    def save_checkpoint_helper_function(self, directory, title, epoch, loss, accuracy, optimizer=None, schedule=None):
+                
         # Create directory to save to
         if not os.path.exists(directory):
             os.makedirs(directory)
 
         # Build checkpoint dict to save.
         ckpt_dict = {
-            'model_state_dict':self.model.state_dict(),
+            'model_state_dict':self.model.module.state_dict(),
             'optimizer_state_dict':optimizer.state_dict() if optimizer is not None else None,
             'epoch':epoch,
             'loss_value':loss}
@@ -306,8 +304,8 @@ class Trainer():
         
         # Save the file with specific name
         core_name = title
-        name = "{}_last_epoch.pth".format(core_name) # (2) 아... last epoch에서만 저장이..되는거야..?^^..?
-        torch.save(ckpt_dict, os.path.join(directory, name)) # (1) 그래서 이 last epoch 모델이 왜 experiments 디렉토리에 저장이 안 되냐 이거지
+        name = "{}_last_epoch.pth".format(core_name)
+        torch.save(ckpt_dict, os.path.join(directory, name)) #이걸 만들었던 경로로 지정 안 해주면 못 읽는다고 함..ㅜㅜ
         
         # best loss나 best accuracy를 가진 모델만 저장하는 코드
         if self.best_loss > loss:
@@ -330,7 +328,6 @@ class Trainer():
         if self.task == 'fine_tune':
             self.compute_accuracy(input_dict, output_dict)
         return loss_dict, loss
-
 
     def aggregate_losses(self,input_dict,output_dict):
         final_loss_dict = {}

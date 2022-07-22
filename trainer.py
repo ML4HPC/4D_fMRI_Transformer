@@ -64,7 +64,7 @@ class Trainer():
         self.lr_handler = LrHandler(**kwargs)
         self.train_loader, self.val_loader, _ = DataHandler(**kwargs).create_dataloaders()
         self.create_model()
-        #self.initialize_weights(load_cls_embedding=False)
+        self.initialize_weights(load_cls_embedding=False)
         self.create_optimizer()
         self.lr_handler.set_schedule(self.optimizer)
         self.writer = Writer(sets,**kwargs) #여기서 이미 writer class를 불러옴.
