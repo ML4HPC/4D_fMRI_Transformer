@@ -10,6 +10,9 @@ import torch.distributed as dist
 from torch.nn import DataParallel
 import builtins
 
+#AMP
+#
+
 # for data parallel
 # torch.distributed.init_process_group(
 #      backend='nccl', world_size=4, rank=int(os.environ["LOCAL_RANK"]), store=None)
@@ -54,12 +57,17 @@ def get_arguments(base_path):
     parser.add_argument('--local_rank', default=-1, type=int, 
                         help='local rank for distributed training')
 
-
-    ##phase 1 - NOW ON! I think it takes so long..
+    # AMP configs:
+    parser.add_argument('--amp', default='True', type=str,
+                        help='run code with amp?')
+    parser.add_argument('--opt_level', default='O1', type=str,
+                        help='opt level of amp. O1 is recommended')
+    
+    ##phase 1
     parser.add_argument('--task_phase1', type=str, default='autoencoder_reconstruction')
-    parser.add_argument('--batch_size_phase1', type=int, default=8) #이걸.. 잘게 쪼개볼까? 원래는 4였음.
+    parser.add_argument('--batch_size_phase1', type=int, default=16) #이걸.. 잘게 쪼개볼까? 원래는 4였음.
     parser.add_argument('--validation_frequency_phase1', type=int, default=10000) #원래는 1000이었음 -> 약 7분 걸릴 예정.
-    parser.add_argument('--nEpochs_phase1', type=int, default=10) #epoch는 10개인 걸로~
+    parser.add_argument('--nEpochs_phase1', type=int, default=1) #epoch는 10개인 걸로~
     parser.add_argument('--augment_prob_phase1', default=0)
     parser.add_argument('--weight_decay_phase1', default=1e-7)
     parser.add_argument('--lr_init_phase1', default=1e-3)

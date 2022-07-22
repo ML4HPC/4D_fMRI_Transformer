@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-def get_intense_voxels(yy,shape):
+def get_intense_voxels(yy,shape,gpu):
     y = yy.clone()
     low_quantile, high_quantile, = (0.9,0.99)
-    voxels = torch.empty(shape).cuda()
+    voxels = torch.empty(shape,pin_memory=True).cuda(gpu)
     for batch in range(y.shape[0]):
         for TR in range(y.shape[-1]):
             yy = y[batch, :, :, :, TR]
@@ -53,9 +53,9 @@ class Percept_Loss(nn.Module):
         elif task == 'transformer_reconstruction':
             self.memory_constraint = 0.1
         if 'reconstruction' in task:
-            self.vgg = Vgg16()
+            self.vgg = Vgg16().to(memory_format=torch.channels_last)
             if kwargs.get('cuda'):
-                self.vgg.cuda()
+                self.vgg.cuda(kwargs.get('gpu'))
             self.loss = nn.MSELoss()
 
     def forward(self, input, target):
@@ -67,6 +67,9 @@ class Percept_Loss(nn.Module):
         input = input.permute(0, 5, 1, 4, 2, 3).reshape(num_slices, 1, width, height)
         target = target.permute(0, 5, 1, 4, 2, 3).reshape(num_slices, 1, width, height)
         input = input[represent, :, :, :].repeat(1,3,1,1)
+
+        # Convert from NCHW to NHWC to accellerate
+        input = input.contiguous(memory_format=torch.channels_last)
         target = target[represent, :, :, :].repeat(1,3,1,1)
 
         input = self.vgg(input)

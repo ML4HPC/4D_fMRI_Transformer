@@ -1,5 +1,5 @@
 from utils import *
-from trainer_torchamp import Trainer
+from trainer_only_torchamp import Trainer
 import os
 from pathlib import Path
 import torch
@@ -14,7 +14,7 @@ import builtins
 from torch.cuda.amp import GradScaler, autocast
 
 # ASP
-from apex.contrib.sparsity import ASP
+#from apex.contrib.sparsity import ASP
 
 # for data parallel
 # torch.distributed.init_process_group(
@@ -32,6 +32,7 @@ def get_arguments(base_path):
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_path', default='./samples')
     parser.add_argument('--base_path', default=base_path)
+    parser.add_argument('--step', default='1', choices=['1','2','3'], help='which step you want to run')
     parser.add_argument('--seed', type=int, default=55555555)
     parser.add_argument('--dataset_name', type=str, choices=['ucla','S1200'],default="S1200") 
     parser.add_argument('--num_val_samples', type=int, default=1000) #10000이 default. 변화 없음.
@@ -69,7 +70,7 @@ def get_arguments(base_path):
     ##phase 1
     parser.add_argument('--task_phase1', type=str, default='autoencoder_reconstruction')
     parser.add_argument('--batch_size_phase1', type=int, default=8) #이걸.. 잘게 쪼개볼까? 원래는 4였음.
-    parser.add_argument('--validation_frequency_phase1', type=int, default=10000) #원래는 1000이었음 -> 약 7분 걸릴 예정.
+    parser.add_argument('--validation_frequency_phase1', type=int, default=10000) # 11 for test #original: 10000) #원래는 1000이었음 -> 약 7분 걸릴 예정.
     parser.add_argument('--nEpochs_phase1', type=int, default=1) #epoch는 10개인 걸로~
     parser.add_argument('--augment_prob_phase1', default=0)
     parser.add_argument('--weight_decay_phase1', default=1e-7)
@@ -82,29 +83,29 @@ def get_arguments(base_path):
     ##phase 2
     parser.add_argument('--task_phase2', type=str, default='transformer_reconstruction')
     parser.add_argument('--batch_size_phase2', type=int, default=4) #원래는 1이었음
-    parser.add_argument('--validation_frequency_phase2', type=int, default=10000) #원래는 500이었음
-    parser.add_argument('--nEpochs_phase2', type=int, default=5)
+    parser.add_argument('--validation_frequency_phase2', type=int, default=10000) # 11 for test original: 10000) #원래는 500이었음
+    parser.add_argument('--nEpochs_phase2', type=int, default=1)
     parser.add_argument('--augment_prob_phase2', default=0)
     parser.add_argument('--weight_decay_phase2', default=1e-7)
     parser.add_argument('--lr_init_phase2', default=1e-3)
     parser.add_argument('--lr_gamma_phase2', default=0.97)
     parser.add_argument('--lr_step_phase2', default=1000)
     parser.add_argument('--sequence_length_phase2', default=20)
-    parser.add_argument('--workers_phase2', default=1)
+    parser.add_argument('--workers_phase2', default=4)
     parser.add_argument('--model_weights_path_phase1', default=None)
 
     ##phase 3
     parser.add_argument('--task_phase3', type=str, default='fine_tune')
     parser.add_argument('--batch_size_phase3', type=int, default=3) #원래는 3이었음
-    parser.add_argument('--validation_frequency_phase3', type=int, default=10000) #원래는 200이었음
-    parser.add_argument('--nEpochs_phase3', type=int, default=30)
+    parser.add_argument('--validation_frequency_phase3', type=int, default=10000) # 11 for test # original: 10000) #원래는 200이었음
+    parser.add_argument('--nEpochs_phase3', type=int, default=1)
     parser.add_argument('--augment_prob_phase3', default=0)
     parser.add_argument('--weight_decay_phase3', default=1e-2)
     parser.add_argument('--lr_init_phase3', default=1e-4)
     parser.add_argument('--lr_gamma_phase3', default=0.9)
     parser.add_argument('--lr_step_phase3', default=1500)
     parser.add_argument('--sequence_length_phase3', default=20)
-    parser.add_argument('--workers_phase3', default=0)
+    parser.add_argument('--workers_phase3', default=4)
     parser.add_argument('--model_weights_path_phase2', default=None)
     
     ##phase 4 (test)
@@ -171,25 +172,46 @@ def _get_sync_file():
         return sync_file
 
 def weight_loader(args):
-    if (args.model_weights_path_phase3 != None) and (os.path.exists(args.model_weights_path_phase3)):
-        model_weights_path = args.model_weights_path_phase3
-        step = 'test'
-        task = None
-    elif (args.model_weights_path_phase2 != None) and (os.path.exists(args.model_weights_path_phase2)):
-        model_weights_path = args.model_weights_path_phase2
-        step = '3'
-        task = 'fine_tune_{}'.format(args.fine_tune_task)
-    elif (args.model_weights_path_phase1 != None) and (os.path.exists(args.model_weights_path_phase1)):
-        model_weights_path = args.model_weights_path_phase1
-        step = '2'
-        task = 'tranformer_reconstruction'
-    else:
-        model_weights_path = None
-        step = '1'
-        task = 'autoencoder_reconstruction'
+    model_weights_path = None
+    try:
+        if args.step == '1' :
+            task = 'autoencoder_reconstruction'
+            
+        elif args.step == '2':
+            task = 'tranformer_reconstruction'
+            if os.path.exists(args.model_weights_path_phase1):
+                model_weights_path = args.model_weights_path_phase1 
+        elif args.step == '3':
+            task = 'fine_tune_{}'.format(args.fine_tune_task)
+            if os.path.exists(args.model_weights_path_phase2):
+                model_weights_path = args.model_weights_path_phase2
+        elif args.step == 'test':
+            task = None
+            if os.path.exists(args.model_weights_path_phase3):
+                model_weights_path = args.model_weights_path_phase3
+    except:
+            #if no weights were provided
+            model_weights_path = None 
+
+    #if (args.model_weights_path_phase3 != None) and (os.path.exists(args.model_weights_path_phase3)):
+    #    model_weights_path = args.model_weights_path_phase3
+    #    step = 'test'
+    #    task = None
+    #elif (args.model_weights_path_phase2 != None) and (os.path.exists(args.model_weights_path_phase2)):
+    #    model_weights_path = args.model_weights_path_phase2
+    #    step = '3'
+    #    task = 'fine_tune_{}'.format(args.fine_tune_task)
+    #elif (args.model_weights_path_phase1 != None) and (os.path.exists(args.model_weights_path_phase1)):
+    #    model_weights_path = args.model_weights_path_phase1
+    #    step = '2'
+    #    task = 'tranformer_reconstruction'
+    #else:
+    #    model_weights_path = None
+    #    step = '1'
+    #    task = 'autoencoder_reconstruction'
     
-    print(f'loading weight from {model_weights_path}')
-    return model_weights_path, step, task
+    # print(f'loading weight from {model_weights_path}')
+    return model_weights_path, args.step, task
     
     
 
@@ -212,6 +234,7 @@ def main(base_path):
         if args.local_rank != -1: # for torch.distributed.launch
             args.rank = args.local_rank
             args.gpu = args.local_rank
+            print('args.gpu in main_amp.py: ', args.gpu)
         elif 'SLURM_PROCID' in os.environ: # for slurm scheduler
             args.rank = int(os.environ['SLURM_PROCID'])
             args.gpu = args.rank % torch.cuda.device_count()

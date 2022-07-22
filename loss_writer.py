@@ -1,4 +1,4 @@
-from torch.nn import MSELoss,L1Loss,BCELoss
+from torch.nn import MSELoss,L1Loss,BCELoss, BCEWithLogitsLoss
 from losses import Percept_Loss
 import csv
 import os
@@ -130,7 +130,7 @@ class Writer():
                        'reconstruction':
                            {'is_active':False,'criterion':L1Loss(),'factor':kwargs.get('reconstruction_factor')},
                        'binary_classification':
-                           {'is_active':False,'criterion':BCELoss(),'factor':1},
+                           {'is_active':False,'criterion': BCEWithLogitsLoss(),'factor':1}, #originally BCELoss(). Stella changed it
                        'regression':
                            {'is_active':False,'criterion':L1Loss(),'factor':1}}
         if 'reconstruction' in kwargs.get('task').lower():
