@@ -1,3 +1,4 @@
+
 from loss_writer import Writer
 from learning_rate import LrHandler
 from data_preprocess_and_load.dataloaders import DataHandler
@@ -16,6 +17,13 @@ from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 from torch.nn import DataParallel
 import builtins
+
+#torch AMP
+from torch.cuda.amp import autocast
+from torch.cuda.amp import GradScaler
+
+# ASP
+#from apex.contrib.sparsity import ASP
 
 class Trainer():
     """
@@ -67,6 +75,9 @@ class Trainer():
         self.initialize_weights(load_cls_embedding=False)
         self.create_optimizer()
         self.lr_handler.set_schedule(self.optimizer)
+
+        #ASP.prune_trained_model(self.model, self.optimizer)
+
         self.writer = Writer(sets,**kwargs) #여기서 이미 writer class를 불러옴.
         self.sets = sets
         self.eval_iter = 0
@@ -112,6 +123,7 @@ class Trainer():
             # should always set the single device scope, otherwise,
             # DistributedDataParallel will use all available devices.
             if self.gpu is not None:
+                #print('id of gpu is:', self.gpu)
                 self.device = torch.device('cuda:{}'.format(self.gpu))
                 torch.cuda.set_device(self.gpu)
                 self.model.cuda(self.gpu)
@@ -136,7 +148,8 @@ class Trainer():
             times = [] 
             for batch_idx, input_dict in enumerate(tqdm(loader, position=0, leave=True)):
                 start_time = time.time()
-                loss_dict, _ = self.forward_pass(input_dict)
+                with autocast():
+                    loss_dict, _ = self.forward_pass(input_dict)
                 end_time = time.time()
                 #print('times taken to execute step {0}: {1}'.format(batch_idx,end_time-start_time))
                 times.append(end_time-start_time)
@@ -163,7 +176,7 @@ class Trainer():
             self.writer.loss_summary(lr=self.lr_handler.schedule.get_last_lr()[0])
             self.writer.accuracy_summary(mid_epoch=False)
             self.writer.save_history_to_csv()
-            self.save_checkpoint_(epoch, len(self.train_loader)) 
+            #self.save_checkpoint_(epoch, len(self.train_loader), scaler) #얘가 epoch 끝날 때마다 저장하는 아이 인 듯 함. 
 
     # 한 epoch 안에서 실행하는 함수 . 여기서 .pth를 불러와야 할 것 같음.
     def find_file (self, files_Path):
@@ -178,7 +191,7 @@ class Trainer():
         return sorted_file_lst
     
     def train_epoch(self,epoch):
-        
+        scaler = GradScaler()        
         if self.distributed:
             self.train_loader.sampler.set_epoch(epoch)
         
@@ -187,23 +200,41 @@ class Trainer():
 
         times = []
         for batch_idx, input_dict in enumerate(tqdm(self.train_loader,position=0,leave=True)): 
-			### training ###
-            start_time = time.time()
+            ### training ###
+            #start_time = time.time()
+            torch.cuda.nvtx.range_push("training steps")
             self.writer.total_train_steps += 1
             self.optimizer.zero_grad()
-            loss_dict, loss = self.forward_pass(input_dict)
-            loss.backward()
-            self.optimizer.step()
+            if self.amp:
+                print('initializing amp')
+                torch.cuda.nvtx.range_push("forward pass")
+                with autocast():
+                    loss_dict, loss = self.forward_pass(input_dict)
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push("backward pass")
+                scaler.scale(loss).backward()
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push("optimize")
+                scaler.step(self.optimizer)
+                torch.cuda.nvtx.range_pop()
+                scaler.update()
+                
+            else:
+                loss_dict, loss = self.forward_pass(input_dict)
+                loss.backward()
+                self.optimizer.step()
+
             self.lr_handler.schedule_check_and_update()
             self.writer.write_losses(loss_dict, set='train') # 이게 기록됨.
-            end_time = time.time()
-            print(f'times taken to execute step {batch_idx}: {end_time-start_time}')
-            times.append(end_time - start_time)			
-			
-			#for calculating times
-            if batch_idx == 10 : 
-                print(np.mean(times))
-                break			
+            #end_time = time.time()
+            #print(f'times taken to execute step {batch_idx}: {end_time-start_time}')
+            #times.append(end_time - start_time)
+            torch.cuda.nvtx.range_pop()
+
+            #for calculating times
+            # if batch_idx == 10 : 
+            #     print(np.mean(times))
+            #     break
 
             if (batch_idx + 1) % self.validation_frequency == 0:
                 print('batch index is:', batch_idx)
@@ -211,9 +242,9 @@ class Trainer():
                 
 
                 ### validation ###
-                start_time = time.time()
+                #start_time = time.time()
                 self.eval_epoch('val') #이게 엄~청~ 오래 걸림 
-                end_time = time.time()
+                #end_time = time.time()
                 print('how much time takes to execute eval_epoch(): %20ds' % (end_time - start_time))
                 #print('______mid-epoch summary {0:.2f}/{1:.0f}______\n'.format(partial_epoch,self.nEpochs))
                 self.writer.loss_summary(lr=self.lr_handler.schedule.get_last_lr()[0])
@@ -221,7 +252,7 @@ class Trainer():
                 self.writer.experiment_title = self.writer.experiment_title
                 self.writer.save_history_to_csv()
                 
-                self.save_checkpoint_(epoch, batch_idx)               
+                self.save_checkpoint_(epoch, batch_idx, scaler) #validation마다 checkpoint 저장               
                 self.train()
                 
 
@@ -246,7 +277,7 @@ class Trainer():
         else:
             return None
 
-    def save_checkpoint_(self, epoch, batch_idx):
+    def save_checkpoint_(self, epoch, batch_idx, scaler):
         partial_epoch = epoch + (batch_idx / len(self.train_loader))
         
         print('in save_checkpoint_ function, epoch is:', partial_epoch)
@@ -254,25 +285,29 @@ class Trainer():
         accuracy = self.get_last_accuracy()
         title = str(self.writer.experiment_title) + '_epoch_' + str(int(epoch)) + '_batch_index_'+ str(batch_idx) # 이 함수 안에서만 쓰도록 함~
         self.save_checkpoint(
-            self.writer.experiment_folder, title, partial_epoch, loss ,accuracy, self.optimizer ,schedule=self.lr_handler.schedule) #experiments에 저장
+            self.writer.experiment_folder, title, partial_epoch, loss ,accuracy, scaler, self.optimizer ,schedule=self.lr_handler.schedule) #experiments에 저장
         
-    
-    def save_checkpoint(self, directory, title, epoch, loss, accuracy, optimizer=None,schedule=None):
+    # helper function of the save_checkpoint_ (don't need to merge them)
+    def save_checkpoint(self, directory, title, epoch, loss, accuracy, scaler, optimizer=None,schedule=None):
         # Create directory to save to
         if not os.path.exists(directory):
             os.makedirs(directory)
+        if self.amp:
+            amp_state = scaler.state_dict()
 
         # Build checkpoint dict to save.
         ckpt_dict = {
-            'model_state_dict':self.model.state_dict(),
+            'model_state_dict':self.model.module.state_dict(),
             'optimizer_state_dict':optimizer.state_dict() if optimizer is not None else None,
             'epoch':epoch,
-            'loss_value':loss}
+            'loss_value':loss,
+            'amp_state': amp_state}
         if accuracy is not None:
             ckpt_dict['accuracy'] = accuracy
         if schedule is not None:
             ckpt_dict['schedule_state_dict'] = schedule.state_dict()
             ckpt_dict['lr'] = schedule.get_last_lr()[0]
+        # 수상한 줄... 은 별 거 없고 이 모델의 path를 받아와서 저장하는 것. 그러면 transformer는 ae의 path를 가지고 있겠군 
         if hasattr(self,'loaded_model_weights_path'):
             ckpt_dict['loaded_model_weights_path'] = self.loaded_model_weights_path
         
@@ -304,7 +339,9 @@ class Trainer():
         input_dict = {k:(v.to(self.gpu) if self.cuda else v) for k,v in input_dict.items()}
         #print('shape of input dict is :', input_dict['fmri_sequence'].size())
         output_dict = self.model(input_dict['fmri_sequence'])
+        torch.cuda.nvtx.range_push("aggregate_losses")
         loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
+        torch.cuda.nvtx.range_pop()
         if self.task == 'fine_tune':
             self.compute_accuracy(input_dict, output_dict)
         return loss_dict, loss
@@ -316,7 +353,9 @@ class Trainer():
         for loss_name, current_loss_dict in self.writer.losses.items():
             if current_loss_dict['is_active']:
                 loss_func = getattr(self, 'compute_' + loss_name)
+                torch.cuda.nvtx.range_push(f"{loss_name}")
                 current_loss_value = loss_func(input_dict,output_dict)
+                torch.cuda.nvtx.range_pop()
                 if current_loss_value.isnan().sum() > 0:
                     warnings.warn('found nans in computation')
                     print('at {} loss'.format(loss_name))
@@ -334,10 +373,14 @@ class Trainer():
 
     def compute_intensity(self,input_dict,output_dict):
         per_voxel = input_dict['fmri_sequence'][:,1,:,:,:,:]
-        voxels = get_intense_voxels(per_voxel, output_dict['reconstructed_fmri_sequence'].shape)
+        torch.cuda.nvtx.range_push("get_intensity_voxels")
+        voxels = get_intense_voxels(per_voxel, output_dict['reconstructed_fmri_sequence'].shape, self.gpu) 
+        torch.cuda.nvtx.range_pop()
         output_intense = output_dict['reconstructed_fmri_sequence'][voxels]
         truth_intense = input_dict['fmri_sequence'][:,0][voxels.squeeze(1)]
+        torch.cuda.nvtx.range_push("self.intensity_loss_func")
         intensity_loss = self.intensity_loss_func(output_intense.squeeze(), truth_intense)
+        torch.cuda.nvtx.range_pop()
         return intensity_loss
 
     def compute_perceptual(self,input_dict,output_dict):
@@ -371,5 +414,3 @@ class Trainer():
         for name,value in kwargs.items():
             setattr(self,name,value)
         self.kwargs = kwargs
-
-

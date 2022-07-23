@@ -31,4 +31,4 @@ env | grep SLURM
 
 # Phase4 : test
 # have some problems here
-srun python main.py --model_weights_path_phase3 ./weights/S1200_fine_tune_binary_classification.pth
+srun python main.py --step test --model_weights_path_phase3 ./weights/S1200_fine_tune_binary_classification.pth

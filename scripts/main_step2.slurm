@@ -29,4 +29,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --model_weights_path_phase1 ../weights/S1200_autoencoder.pth
+srun python main.py --step 2 --model_weights_path_phase1 ../weights/S1200_autoencoder.pth

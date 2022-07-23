@@ -29,4 +29,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --model_weights_path_phase2 ./weights/S1200_tranformer_reconstruction.pth
+srun python main.py step 3 --model_weights_path_phase2 ./weights/S1200_tranformer_reconstruction.pth

@@ -29,4 +29,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main_amp.py
+srun python main.py --step 1
