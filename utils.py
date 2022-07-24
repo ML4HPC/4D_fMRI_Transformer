@@ -3,12 +3,13 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from datetime import datetime
+from pytz import timezone
 import argparse
 import os
 import dill
 
 def datestamp():
-    time = datetime.now().strftime("%d_%m___%H_%M_%S")
+    time = datetime.now(timezone('Asia/Seoul')).strftime("%m_%d__%H_%M_%S")
     return time
 
 def reproducibility(**kwargs):
