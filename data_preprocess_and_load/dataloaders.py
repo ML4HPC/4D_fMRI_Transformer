@@ -1,3 +1,4 @@
+#4D_fMRI_Transformer
 import numpy as np
 import torch
 from torch.utils.data import DataLoader,Subset, Dataset, RandomSampler
@@ -30,6 +31,10 @@ class DataHandler():
             return rest_1200_3D
         elif self.dataset_name == 'ucla':
             return ucla
+        elif self.dataset_name == 'ABCD':
+            return ABCD_3D
+        elif self.dataset_name == 'Dummy':
+            return DummyDataset
         else:
             raise NotImplementedError
 

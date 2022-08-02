@@ -132,7 +132,7 @@ class Writer():
                        'binary_classification':
                            {'is_active':False,'criterion': BCEWithLogitsLoss(),'factor':1}, #originally BCELoss(). Stella changed it
                        'regression':
-                           {'is_active':False,'criterion':L1Loss(),'factor':1}}
+                           {'is_active':False,'criterion':MSELoss(),'factor':1}}  #changed from L1Loss to MSELoss 
         if 'reconstruction' in kwargs.get('task').lower():
             self.losses['intensity']['is_active'] = True
             self.losses['perceptual']['is_active'] = True

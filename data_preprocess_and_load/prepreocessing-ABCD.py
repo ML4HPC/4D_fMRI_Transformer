@@ -6,7 +6,8 @@ from multiprocessing import Process, Queue
 
 # Stella - 이게 HCP 데이터 전체에 통용되는 전처리 방법인가?
 def read_abcd(file_path,global_norm_path,per_voxel_norm_path, count,queue=None):
-    img_orig = torch.from_numpy(np.asanyarray(nib.load(file_path).dataobj)[12:86, 14:109, 0:80, 10:]).to(dtype=torch.float32) # (x,y,z,timepoint)
+    ## remove former 20 timepoints (이미 4.cleaned image는 10개 지워진 상태이긴 함)
+    img_orig = torch.from_numpy(np.asanyarray(nib.load(file_path).dataobj)[10:-10, 10:-10, 0:-10, 20:]).to(dtype=torch.float32) # (x,y,z,timepoint)
     background = img_orig == 0
     img_temp = (img_orig - img_orig[~background].mean()) / (img_orig[~background].std()) #global normalization
     img = torch.empty(img_orig.shape)
@@ -30,7 +31,7 @@ def read_abcd(file_path,global_norm_path,per_voxel_norm_path, count,queue=None):
 
 def main():
     abcd_path = '/pscratch/sd/j/junbeom/ABCDfMRI/4.cleaned_image'
-    save_path = '/pscratch/sd/s/stella/ABCD_TFF'
+    save_path = '/pscratch/sd/s/stella/ABCD_TFF_20_timepoint_removed'
     os.makedirs(save_path, exist_ok=True)
     #all_files_path = os.path.join(hcp_path,'data')
     queue = Queue()
@@ -40,7 +41,7 @@ def main():
     # subj_list = f.read().splitlines()
     # f.close()
     # for subj in os.listdir(all_files_path):
-    for file_name in subj_list[7468:]: 
+    for file_name in subj_list[:]: 
         subj_path = os.path.join(abcd_path,file_name)
         subj = file_name.split('-')[1].split('.')[0]
         print(subj)

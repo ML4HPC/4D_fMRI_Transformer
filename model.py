@@ -50,6 +50,9 @@ class BaseModel(nn.Module, ABC):
                                      num_hidden_layers=kwargs.get('transformer_hidden_layers'),
                                      num_attention_heads=16, max_position_embeddings=30,
                                      hidden_dropout_prob=self.dropout_rates['transformer'])
+        # max_position_embeddings : The maximum sequence length that this model might
+        #                           ever be used with. Typically set this to something large just in case
+        #                           (e.g., 512 or 1024 or 2048).
 
         self.label_num = 1
         self.inChannels = 2
@@ -267,13 +270,17 @@ class Transformer_Block(BertPreTrainedModel, BaseModel):
         self.cls_pooling = True
         self.bert = BertModel(self.BertConfig, add_pooling_layer=self.cls_pooling)
         self.init_weights()
+        self.register_buffer('cls_id', (torch.ones((1, 1, self.BertConfig.hidden_size)) * 0.5),persistent=False)
+        #self.cls_id = torch.ones(1, 1, self.BertConfig.hidden_size, device=kwargs.get('gpu'), requires_grad=False) * 0.5 # nn.Parameter(torch.ones(1, 1, self.BertConfig.hidden_size) * 0.5)
         self.cls_embedding = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.BertConfig.hidden_size), nn.LeakyReLU())
         
     def concatenate_cls(self, x):
-        torch.cuda.nvtx.range_push("register_buffer")
-        self.register_buffer('cls_id', (torch.ones((x.size()[0], 1, self.BertConfig.hidden_size),device=x.get_device()) * 0.5),persistent=False)
-        torch.cuda.nvtx.range_pop()
-        cls_token = self.cls_embedding(self.cls_id)
+        # torch.cuda.nvtx.range_push("register_buffer")
+        #self.register_buffer('cls_id', (torch.ones((x.size()[0], 1, self.BertConfig.hidden_size),device=x.get_device()) * 0.5),persistent=False)
+        #cls_token = self.cls_embedding(self.cls_id)
+        # torch.cuda.nvtx.range_pop()
+        cls_token = self.cls_embedding(self.cls_id.expand(x.size()[0], -1, -1))
+        
         # print('Size of cls_token: ', cls_token.size())
         # print('Size of cls_id: ', self.cls_id.size())
         # print('Size of x: ', x.size())
@@ -293,7 +300,7 @@ class Transformer_Block(BertPreTrainedModel, BaseModel):
                             output_attentions=None,
                             output_hidden_states=None,
                             return_dict=self.BertConfig.use_return_dict
-                            )
+                            ) #여기서 지정해줘야 함.
 
         sequence_output = outputs[0][:, 1:, :]
         pooled_cls = outputs[1]

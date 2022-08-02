@@ -1,6 +1,7 @@
+#4D_fMRI_Transformer
 import os
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset
 # import augmentations #commented out because of cv errors
 import pandas as pd
 from pathlib import Path
@@ -84,7 +85,7 @@ class rest_1200_3D(BaseDataset):
                 #deal with discrepency that a few subjects don't have exact age, so we take the mean of the age range as the exact age proxy
                 age = self.meta_data[self.meta_data['Subject'] == int(subject)]['Age'].values[0]
                 age = torch.tensor([float(x) for x in age.replace('+','-').split('-')]).mean()
-            gender = self.meta_data[self.meta_data['Subject']==int(subject)]['Gender'].values[0]
+            sex = self.meta_data[self.meta_data['Subject']==int(subject)]['Gender'].values[0]
             path_to_TRs = os.path.join(self.data_dir,subject,self.norm) # self.norm == global_normalize
             subject_duration = len(os.listdir(path_to_TRs)) #sequence length of the subject
             session_duration = subject_duration - self.sample_duration # 샘플링하는 길이만큼을 빼주어야 처음부터 sequence length - sample_duration 까지의 index를 샘플 가능. 
@@ -93,19 +94,19 @@ class rest_1200_3D(BaseDataset):
             
             #이 부분이 결정적으로 샘플링하는 부분
             for k in range(0,session_duration,self.stride):
-                self.index_l.append((i, subject, path_to_TRs,filename + str(k),session_duration, age , gender))
+                self.index_l.append((i, subject, path_to_TRs,filename + str(k),session_duration, age , sex))
 
     def __len__(self):
         N = len(self.index_l)
         return N
 
     def __getitem__(self, index):
-        subj, subj_name, path_to_TRs, TR , session_duration, age, gender = self.index_l[index]
+        subj, subj_name, path_to_TRs, TR , session_duration, age, sex = self.index_l[index]
         age = self.label_dict[age] if isinstance(age,str) else age.float()
         y = self.load_sequence(path_to_TRs,TR)
         if self.augment is not None:
             y = self.augment(y)
-        return {'fmri_sequence':y,'subject':subj,'subject_binary_classification':self.label_dict[gender],'subject_regression':age,'TR':int(TR.split('_')[3])}
+        return {'fmri_sequence':y,'subject':subj,'sex':self.label_dict[sex],'age':age,'TR':int(TR.split('_')[3])} # {'fmri_sequence':y,'subject':subj,'subject_binary_classification':self.label_dict[sex],'subject_regression':age,'TR':int(TR.split('_')[3])}
 
 class ABCD_3D(BaseDataset):
     def __init__(self, **kwargs):
@@ -113,40 +114,77 @@ class ABCD_3D(BaseDataset):
         #self.root = r'../TFF/'
         self.data_dir = kwargs.get('image_path')
         self.meta_data = pd.read_csv(os.path.join(kwargs.get('base_path'),'data','metadata','ABCD_phenotype_total.csv'))
-        # self.meta_data_residual = pd.read_csv(os.path.join(kwargs.get('base_path'),'data','metadata','HCP_1200_precise_age.csv'))
-        # self.data_dir = os.path.join(self.root, 'MNI_to_TRs')
         self.subject_names = os.listdir(self.data_dir)
-        # self.label_dict = {'F': torch.tensor([0.0]), 'M': torch.tensor([1.0]), '22-25': torch.tensor([1.0, 0.0]),
-                           # '26-30': torch.tensor([1.0, 0.0]),
-                           # '31-35': torch.tensor([0.0, 1.0]), '36+': torch.tensor([0.0, 1.0])}  # torch.tensor([1])}
-        # 이 label dict 어쩌고 필요한가???
         self.subject_folders = []
+        
+        # ABCD 에서 age와 sex가 결측값인 샘플 제거
+        non_na = self.meta_data[['subjectkey','age','sex']].dropna(axis=0)
+        
+        #voxel normalize가 덜 된 subject 제거
+        mask=non_na['subjectkey'].isin(['NDARINVRTD32ZG1','NDARINVAAV56RVU','NDARINVRTDH8349','NDARINVAAPJB31X','NDARINVAAX7P792','NDARINVRTDZTY9C','NDARINVAAR0XGYL'])
+        non_na = non_na[~mask]
+        subjects = list(non_na['subjectkey']) 
+        age_mean = non_na['age'].mean()
+        age_std = non_na['age'].std()
         for i,subject in enumerate(os.listdir(self.data_dir)):
-            age = torch.tensor(self.meta_data[self.meta_data['subject']==int(subject)]['age'].values[0])
-            gender = self.meta_data[self.meta_data['subjectkey']==int(subject)]['sex'].values[0]
-            path_to_TRs = os.path.join(self.data_dir,subject,self.norm) # self.norm == global_normalize
-            subject_duration = len(os.listdir(path_to_TRs)) #sequence length of the subject
-            session_duration = subject_duration - self.sample_duration # 샘플링하는 길이만큼을 빼주어야 처음부터 sequence length - sample_duration 까지의 index를 샘플 가능. 
-            filename = os.listdir(path_to_TRs)[0]
-            filename = filename[:filename.find('TR')+3]
+            if subject in subjects:
+                # Normalization
+                age = torch.tensor((self.meta_data.loc[self.meta_data['subjectkey']==subject,'age'].values[0] - age_mean) / age_std)
+                sex = torch.tensor(self.meta_data.loc[self.meta_data['subjectkey']==subject,'sex'].values[0] - 1)  #기존: 1,2 -> 변경 후: 0,1
+                path_to_TRs = os.path.join(self.data_dir,subject,self.norm) # self.norm == global_normalize
+                subject_duration = len(os.listdir(path_to_TRs)) #sequence length of the subject
+                session_duration = subject_duration - self.sample_duration # 샘플링하는 길이만큼을 빼주어야 처음부터 sequence length - sample_duration 까지의 index를 샘플 가능. 
+                filename = os.listdir(path_to_TRs)[0]
+                filename = filename[:filename.find('TR')+3] 
             
-            #이 부분이 결정적으로 샘플링하는 부분
-            for k in range(0,session_duration,self.stride):
-                self.index_l.append((i, subject, path_to_TRs,filename + str(k),session_duration, age , gender))
-
+                #이 부분이 결정적으로 샘플링하는 부분
+                for k in range(0,session_duration,self.stride):
+                    self.index_l.append((i, subject, path_to_TRs,filename + str(k),session_duration, age , sex))
+        # print('len(index_l):',len(self.index_l))
     def __len__(self):
         N = len(self.index_l)
         return N
 
     def __getitem__(self, index):
-        subj, subj_name, path_to_TRs, TR , session_duration, age, gender = self.index_l[index]
-        age = self.label_dict[age] if isinstance(age,str) else age.float()
+        subj, subj_name, path_to_TRs, TR , session_duration, age, sex = self.index_l[index]
+        age = age.float()
         y = self.load_sequence(path_to_TRs,TR)
         if self.augment is not None:
             y = self.augment(y)
-        return {'fmri_sequence':y,'subject':subj,'subject_binary_classification':self.label_dict[gender],'subject_regression':age,'TR':int(TR.split('_')[3])}
+        print('y.shape:',y.shape)
+        return {'fmri_sequence':y,'subject':subj,'sex':sex,'age':age,'TR':int(TR.split('_')[2])} #{'fmri_sequence':y,'subject':subj,'subject_binary_classification':sex,'subject_regression':age,'TR':int(TR.split('_')[2])}
+    
+    def determine_TR(self,TRs_path,TR):
+        if self.random_TR: #no sliding window
+            possible_TRs = len(os.listdir(TRs_path)) - self.sample_duration
+            #TR = 'TR_' + str(torch.randint(0,possible_TRs,(1,)).item())
+            TR = 'rfMRI_TR_' + str(torch.randint(0,possible_TRs,(1,)).item())
+        return TR
 
+class DummyDataset(BaseDataset):
+    # (74,95,80) : same as ABCD
+    def __init__(self, **kwargs):
+        self.register_args(**kwargs)
+        self.sequence_length = kwargs.get('sequence_length')
+        self.total_samples = 1000
+        self.y = torch.randn((self.total_samples, 2, 74, 95, 80, self.sequence_length))
+        self.sex = torch.randint(0,2,(self.total_samples,))
+        self.age = torch.randn(self.total_samples)
+        self.TR = torch.randint(20,300,(self.total_samples,))
+        for k in range(0,self.total_samples):
+            self.index_l.append((k, 'subj'+ str(k), self.TR[k], self.age[k], self.sex[k]))
+            
+    def __len__(self):
+        return self.total_samples
 
+    def __getitem__(self,idx):
+        seq_idx, subj, TR, age, sex = self.index_l[idx]
+        y = self.y[seq_idx]
+        return {'fmri_sequence':y,'subject':subj,'sex':sex,'age':age,'TR':TR}
+            
+    def get_input_shape(self):
+        shape = (74, 95, 80)
+        return shape
 
 class ucla(BaseDataset):
     def __init__(self, **kwargs):
