@@ -32,7 +32,7 @@ def get_arguments(base_path):
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_name', type=str,default="baseline") 
-    parser.add_argument('--dataset_name', type=str, choices=['ucla','S1200','ABCD','Dummy'],default="S1200") 
+    parser.add_argument('--dataset_name', type=str, choices=['S1200','ABCD','Dummy'],default="S1200") 
     parser.add_argument('--image_path', default='./MNI_to_TRs') #perlmutetr: MNI_to_TRs, neuron: samples # /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs for ABCD
     parser.add_argument('--base_path', default=base_path)
     parser.add_argument('--step', default='1', choices=['1','2','3'], help='which step you want to run')
@@ -128,7 +128,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_init_phase3', default=1e-4)
     parser.add_argument('--lr_gamma_phase3', default=0.9)
     parser.add_argument('--lr_step_phase3', default=1500)
-    parser.add_argument('--lr_warmup_phase2', default=100)
+    parser.add_argument('--lr_warmup_phase3', default=100)
     parser.add_argument('--sequence_length_phase3', default=20)
     parser.add_argument('--workers_phase3', default=4)
     parser.add_argument('--model_weights_path_phase2', default=None)
