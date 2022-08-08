@@ -41,25 +41,26 @@ def main():
     # subj_list = f.read().splitlines()
     # f.close()
     # for subj in os.listdir(all_files_path):
-    for file_name in subj_list[:]: 
-        subj_path = os.path.join(abcd_path,file_name)
-        subj = file_name.split('-')[1].split('.')[0]
-        print(subj)
-        try:
-            #file_path = os.path.join(subj_path,os.listdir(subj_path)[0])
-            #hand = file_path[file_path.find('REST1_')+6:file_path.find('.nii')]
-            global_norm_path = os.path.join(save_path, 'MNI_to_TRs',subj,'global_normalize')
-            per_vox_norm_path = os.path.join(save_path, 'MNI_to_TRs', subj, 'per_voxel_normalize')
-            os.makedirs(global_norm_path, exist_ok=True)
-            os.makedirs(per_vox_norm_path, exist_ok=True)
-            count += 1
-            print('start working on subject '+ subj)
-            p = Process(target=read_abcd, args=(subj_path,global_norm_path,per_vox_norm_path, count, queue)) ### 이거 원래 hand 있었거든? 없는 걸로 수정하자.
-            p.start()
-            if count % 4 == 0:
-                p.join()  # this blocks until the process terminates
-        except Exception:
-            print('encountered problem with '+subj)
-            print(Exception)
+    for file_name in subj_list[:]:
+        if 'nii.gz' in file_name: #remove ipynb_checkpoint and Untitled.ipynb
+            subj_path = os.path.join(abcd_path,file_name)
+            subj = file_name.split('-')[1].split('.')[0]
+            print(subj)
+            try:
+                #file_path = os.path.join(subj_path,os.listdir(subj_path)[0])
+                #hand = file_path[file_path.find('REST1_')+6:file_path.find('.nii')]
+                global_norm_path = os.path.join(save_path, 'MNI_to_TRs',subj,'global_normalize')
+                per_vox_norm_path = os.path.join(save_path, 'MNI_to_TRs', subj, 'per_voxel_normalize')
+                os.makedirs(global_norm_path, exist_ok=True)
+                os.makedirs(per_vox_norm_path, exist_ok=True)
+                count += 1
+                print('start working on subject '+ subj)
+                p = Process(target=read_abcd, args=(subj_path,global_norm_path,per_vox_norm_path, count, queue)) ### 이거 원래 hand 있었거든? 없는 걸로 수정하자.
+                p.start()
+                if count % 4 == 0:
+                    p.join()  # this blocks until the process terminates
+            except Exception:
+                print('encountered problem with '+subj)
+                print(Exception)
 if __name__ == '__main__':
     main()

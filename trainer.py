@@ -59,6 +59,8 @@ class Trainer():
 
         self.writer = Writer(sets,**kwargs) #여기서 이미 writer class를 불러옴.
         self.sets = sets
+        
+        self.nan_list = []
 
         for name, loss_dict in self.writer.losses.items():
             if loss_dict['is_active']:
@@ -158,12 +160,15 @@ class Trainer():
         for epoch in range(self.st_epoch,self.nEpochs): 
             start = time.time()
             self.train_epoch(epoch)
-            self.eval_epoch('val')
-            print('______epoch summary {}/{}_____\n'.format(epoch+1,self.nEpochs)) 
-            self.writer.loss_summary(lr=self.lr_handler.schedule.get_last_lr()[0])
-            self.writer.accuracy_summary(mid_epoch=False)
-            self.writer.save_history_to_csv()
-            self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
+            if (not self.distributed) or self.rank == 0 :
+                self.eval_epoch('val')
+                print('______epoch summary {}/{}_____\n'.format(epoch+1,self.nEpochs)) 
+                self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
+                self.writer.accuracy_summary(mid_epoch=False)
+                self.writer.save_history_to_csv()
+                self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
+            else:
+                dist.barrier()
             end = time.time()
             
             print(f'time taken to perform {epoch}: {end-start:.2f}')
@@ -192,6 +197,12 @@ class Trainer():
                 torch.cuda.nvtx.range_pop()
                 
                 if  (batch_idx + 1) % self.accumulation_steps == 0: # gradient accumulation
+                    # gradient clipping 
+                    if self.gradient_clipping == True:
+                        self.scaler.unscale_(self.optimizer)
+                        print('executing gradient clipping')
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1, error_if_nonfinite=False)
+                    
                     torch.cuda.nvtx.range_push("optimize")
                     self.scaler.step(self.optimizer)
                     torch.cuda.nvtx.range_pop()
@@ -206,7 +217,7 @@ class Trainer():
                 
                 
             if not skip_lr_sched:
-                self.lr_handler.schedule_check_and_update()
+                self.lr_handler.schedule_check_and_update(self.optimizer)
             self.writer.write_losses(loss_dict, set='train')
             
             #end_time = time.time()
@@ -222,17 +233,19 @@ class Trainer():
                     break
 
             if (batch_idx + 1) % self.validation_frequency == 0:
-                print('batch index is:', batch_idx)
-
-                ### validation ##
-                self.eval_epoch('val')
-                self.writer.loss_summary(lr=self.lr_handler.schedule.get_last_lr()[0])
-                self.writer.accuracy_summary(mid_epoch=True)
-                self.writer.experiment_title = self.writer.experiment_title
-                self.writer.save_history_to_csv()
+                print(f'evaluating and saving checkpoint at epoch {epoch} batch {batch_idx}')
+                if (not self.distributed) or self.rank == 0 :
+                    ### validation ##
+                    self.eval_epoch('val')
+                    self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
+                    self.writer.accuracy_summary(mid_epoch=True)
+                    self.writer.experiment_title = self.writer.experiment_title
+                    self.writer.save_history_to_csv()
                 
-                self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
-                self.train()
+                    self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
+                    self.train()
+                else:
+                    dist.barrier()
                 
     def eval_epoch(self,set):
         loader = self.val_loader if set == 'val' else self.test_loader 
@@ -253,7 +266,7 @@ class Trainer():
         #print('time spent for validation:',np.mean(times)) 
         
     def forward_pass(self,input_dict):
-        input_dict = {k:(v.to(self.gpu) if self.cuda else v) for k,v in input_dict.items()}
+        input_dict = {k:(v.to(self.gpu) if (self.cuda and torch.is_tensor(v)) else v) for k,v in input_dict.items()}
         #print('shape of input dict is :', input_dict['fmri_sequence'].size())
         output_dict = self.model(input_dict['fmri_sequence'])
         torch.cuda.nvtx.range_push("aggregate_losses")
@@ -276,6 +289,9 @@ class Trainer():
                 if current_loss_value.isnan().sum() > 0:
                     warnings.warn('found nans in computation')
                     print('at {} loss'.format(loss_name))
+                    
+                    self.nan_list+=np.array(input_dict['subject_name'])[(output_dict['reconstructed_fmri_sequence'].reshape(output_dict['reconstructed_fmri_sequence'].shape[0],-1).isnan().sum(axis=1).detach().cpu().numpy() > 0)].tolist()
+                    print('current_nan_list:',set(self.nan_list))
                 lamda = current_loss_dict['factor']
                 factored_loss = current_loss_value * lamda
                 final_loss_dict[loss_name] = factored_loss.item()
@@ -314,17 +330,12 @@ class Trainer():
             return None
 
     def save_checkpoint_(self, epoch, batch_idx, scaler):
-        partial_epoch = epoch # + (batch_idx / len(self.train_loader))
-        
-        print('in save_checkpoint_ function, epoch is:', partial_epoch)
         loss = self.get_last_loss()
         accuracy = self.get_last_accuracy()
         title = str(self.writer.experiment_title) + '_epoch_' + str(int(epoch)) + '_batch_index_'+ str(batch_idx) # 이 함수 안에서만 쓰도록 함~
-        self.save_checkpoint(
-            self.writer.experiment_folder, title, partial_epoch, loss ,accuracy, scaler, self.optimizer ,schedule=self.lr_handler.schedule) #experiments에 저장
         
-    # helper function of the save_checkpoint_ (don't need to merge them)
-    def save_checkpoint(self, directory, title, epoch, loss, accuracy, scaler, optimizer=None,schedule=None):
+        directory = self.writer.experiment_folder
+
         # Create directory to save to
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -334,15 +345,15 @@ class Trainer():
         # Build checkpoint dict to save.
         ckpt_dict = {
             'model_state_dict':self.model.module.state_dict(),
-            'optimizer_state_dict':optimizer.state_dict() if optimizer is not None else None,
+            'optimizer_state_dict':self.optimizer.state_dict() if self.optimizer is not None else None,
             'epoch':epoch,
             'loss_value':loss,
             'amp_state': amp_state}
         if accuracy is not None:
             ckpt_dict['accuracy'] = accuracy
         if schedule is not None:
-            ckpt_dict['schedule_state_dict'] = schedule.state_dict()
-            ckpt_dict['lr'] = schedule.get_last_lr()[0]
+            ckpt_dict['schedule_state_dict'] = self.lr_handler.schedule.state_dict()
+            ckpt_dict['lr'] = self.optimizer.param_groups[0]['lr']
         # 수상한 줄... 은 별 거 없고 이 모델의 path를 받아와서 저장하는 것. 그러면 transformer는 ae의 path를 가지고 있겠군 
         if hasattr(self,'loaded_model_weights_path'):
             ckpt_dict['loaded_model_weights_path'] = self.loaded_model_weights_path

@@ -31,10 +31,10 @@ class LrHandler():
             self.base_lr = dict_lr
 
     def set_schedule(self,optimizer):
-        self.schedule = get_scheduler(optimizer) #StepLR(optimizer, step_size=self.step_size, gamma=self.gamma)
+        self.schedule = self.get_scheduler(optimizer) #StepLR(optimizer, step_size=self.step_size, gamma=self.gamma)
 
-    def schedule_check_and_update(self):
-        if self.schedule.get_last_lr()[0] > self.final_lr:
+    def schedule_check_and_update(self,optimizer):
+        if optimizer.param_groups[0]['lr'] > self.final_lr:
             self.schedule.step() # 각 iteration 마다 update
             if (self.schedule._step_count - 1) % self.step_size == 0:
                 print('current lr: {}'.format(self.schedule.get_last_lr()[0]))
@@ -49,7 +49,7 @@ class LrHandler():
             # https://gaussian37.github.io/dl-pytorch-lr_scheduler/ 참고
             for param_group in optimizer.param_groups:
                 param_group['lr'] = 0 
-            scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=50, T_mult=2, eta_max=self.base_lr, T_up=self.warmup, gamma=self.gamma)
+            scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=self.step_size, T_mult=2, eta_max=self.base_lr, T_up=self.warmup, gamma=self.gamma)
             # T_0 : 최초 주기값 (T_mult에 의해 점점 주기가 커짐)
             # T_mult : 주기가 반복되면서 최초 주기값에 비해 얼만큼 주기를 늘려나갈 것인지 스케일 값에 해당
             # eta_max : lr의 최대값 (warmup 시 eta_max까지 값이 증가)
@@ -114,4 +114,6 @@ class CosineAnnealingWarmUpRestarts(_LRScheduler):
         self.last_epoch = math.floor(epoch)
         for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
             param_group['lr'] = lr
-
+            
+        self._last_lr = [group['lr'] for group in self.optimizer.param_groups]
+        

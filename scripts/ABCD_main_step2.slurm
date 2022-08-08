@@ -11,7 +11,7 @@
 #SBATCH --chdir=../
 #SBATCH --exclusive
 #SBATCH --account m3898_g
-#SBATCH --output=slurm_logs/R-%x-%j.out
+#SBATCH --output=slurm_logs/R-%x-%j-find-nan.out
 #SBATCH --mail-user=kjb961013@snu.ac.kr
 #SBATCH --mail-type=BEGIN
 set +x
@@ -31,4 +31,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --step 2 --batch_size_phase2 4
+srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --step 2 --batch_size_phase2 4 --model_weights_path_phase1 /global/cfs/cdirs/m3898/4D_fMRI_Transformer/experiments/ABCD_autoencoder_reconstruction_sex_baseline/ABCD_autoencoder_reconstruction_sex_baseline_epoch_9_batch_index_2205_BEST_val_loss.pth
