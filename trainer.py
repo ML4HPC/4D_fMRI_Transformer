@@ -25,7 +25,6 @@ from torch.cuda.amp import GradScaler
 # ASP
 #from apex.contrib.sparsity import ASP
 
-from transformers.integrations import init_deepspeed
 
 class Trainer():
     """
