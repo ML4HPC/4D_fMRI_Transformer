@@ -87,7 +87,7 @@ def get_arguments(base_path):
     parser.add_argument('--validation_frequency_phase1', type=int, default=10000000) # 11 for test #original: 10000) #원래는 1000이었음 -> 약 7분 걸릴 예정.
     parser.add_argument('--nEpochs_phase1', type=int, default=20) #epoch는 10개인 걸로~
     parser.add_argument('--augment_prob_phase1', default=0)
-    parser.add_argument('--optim_phase1', default='Adam')
+    parser.add_argument('--optim_phase1', default='AdamW')
     parser.add_argument('--weight_decay_phase1', default=1e-7)
     parser.add_argument('--lr_policy_phase1', default='step', choices=['step','SGDR'], help='learning rate policy: step|SGDR')
     parser.add_argument('--lr_init_phase1', type=float, default=1e-3)
@@ -106,7 +106,7 @@ def get_arguments(base_path):
     parser.add_argument('--augment_prob_phase2', default=0)
     parser.add_argument('--weight_decay_phase2', default=1e-7)
     parser.add_argument('--lr_policy_phase2', default='step', choices=['step','SGDR'], help='learning rate policy: step|SGDR')
-    parser.add_argument('--lr_init_phase2', type=float, default=1e-3)
+    parser.add_argument('--lr_init_phase2', type=float, default=1e-4)
     parser.add_argument('--lr_gamma_phase2', type=float, default=0.97)
     parser.add_argument('--lr_step_phase2', type=int, default=1000)
     parser.add_argument('--lr_warmup_phase2', type=int, default=500)
@@ -159,6 +159,9 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     setattr(args,'loaded_model_weights_path_phase' + phase_num,loaded_model_weights_path)
     args.experiment_folder = experiment_folder
     args.experiment_title = experiment_folder.name
+    
+    
+    args.local_rank = os.environ["LOCAL_RANK"]
     fine_tune_task = args.fine_tune_task
     print(f'saving the results at {args.experiment_folder}')
     args_logger(args)
@@ -188,7 +191,7 @@ def _get_sync_file():
         sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH']
         os.makedirs(sync_file_dir, exist_ok=True)
 
-        #temporally add two lines below for torch.distributed.launcher
+        #temporally add two lines below for torchrun
         try:
             sync_file = 'file://%s/pytorch_sync.%s.%s' % (
             sync_file_dir, os.environ['SLURM_JOB_ID'], os.environ['SLURM_STEP_ID'])
@@ -241,9 +244,9 @@ def main(base_path):
     
     if args.distributed:
         #args.local_rank = int(os.environ['LOCAL_RANK']) #stella added this line
-        if args.local_rank != -1: # for torch.distributed.launch
-            args.rank = args.local_rank
-            args.gpu = args.local_rank
+        if args.local_rank != -1: # for torchrun
+            args.rank = int(os.environ["LOCAL_RANK"])
+            args.gpu = int(os.environ["LOCAL_RANK"])
         elif 'SLURM_PROCID' in os.environ: # for slurm scheduler
             args.rank = int(os.environ['SLURM_PROCID'])
             args.gpu = args.rank % torch.cuda.device_count()

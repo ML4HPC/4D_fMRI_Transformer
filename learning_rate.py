@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 class LrHandler():
     def __init__(self,**kwargs):
-        self.final_lr = 1e-5
+        self.final_lr = 1e-7
         self.epoch = kwargs.get('nEpochs')
         self.lr_policy = kwargs.get('lr_policy')
         self.step_size = kwargs.get('lr_step')
@@ -33,12 +33,20 @@ class LrHandler():
     def set_schedule(self,optimizer):
         self.schedule = self.get_scheduler(optimizer) #StepLR(optimizer, step_size=self.step_size, gamma=self.gamma)
 
-    def schedule_check_and_update(self,optimizer):
-        if optimizer.param_groups[0]['lr'] > self.final_lr:
-            self.schedule.step() # 각 iteration 마다 update
-            if (self.schedule._step_count - 1) % self.step_size == 0:
-                print('current lr: {}'.format(self.schedule.get_last_lr()[0]))
-                
+    def schedule_check_and_update(self, optimizer):
+        if self.lr_policy == 'step':
+            if optimizer.param_groups[0]['lr'] > self.final_lr:
+                self.schedule.step() # 각 iteration 마다 update
+                if (self.schedule._step_count - 1) % self.step_size == 0:
+                    print('current lr: {}'.format(optimizer.param_groups[0]['lr']))
+        elif self.lr_policy == 'SGDR':
+            # if int(self.schedule._step_count) == 0 : 
+            #     print('initializing warmup')
+            # elif int(self.schedule._step_count) == int(self.warmup) : 
+            #     print('finished warmup')
+            self.schedule.step()
+            # print('current lr: {}'.format(optimizer.param_groups[0]['lr']))
+                    
     def get_scheduler(self,optimizer):
         
         if self.lr_policy == 'step':
@@ -56,7 +64,7 @@ class LrHandler():
             # T_up : Warm up 시 필요한 epoch 수를 지정하며 일반적으로 짧은 epoch 수를 지정
             # gamma : lr를 얼마나 줄여나갈 것인지.(eta_max에 곱해지는 스케일값)
         else:
-            return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
+            return NotImplementedError('learning rate policy [%s] is not implemented', self.lr_policy)
         return scheduler
 
 
@@ -114,6 +122,4 @@ class CosineAnnealingWarmUpRestarts(_LRScheduler):
         self.last_epoch = math.floor(epoch)
         for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
             param_group['lr'] = lr
-            
-        self._last_lr = [group['lr'] for group in self.optimizer.param_groups]
         

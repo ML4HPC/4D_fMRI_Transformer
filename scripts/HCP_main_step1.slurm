@@ -13,7 +13,6 @@
 #SBATCH --account m3898_g
 #SBATCH --output=slurm_logs/R-%x-%j.out
 #SBATCH --mail-user=kjb961013@snu.ac.kr
-#SBATCH --mail-type=BEGIN
 set +x
 
 # -c, --cpus-per-task
@@ -31,4 +30,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --step 1 --batch_size_phase1 64
+srun python main.py --step 1 --batch_size_phase1 64 --resume

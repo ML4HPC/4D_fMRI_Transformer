@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A m3898_g
-#SBATCH -J TFF_ABCD_step_two
+#SBATCH -J TFF_HCP_step_one
 #SBATCH -C gpu
 #SBATCH -q regular
 #SBATCH -t 6:00:00
@@ -11,8 +11,9 @@
 #SBATCH --chdir=../
 #SBATCH --exclusive
 #SBATCH --account m3898_g
-#SBATCH --output=slurm_logs/R-%x-%j-find-nan.out
+#SBATCH --output=slurm_logs/R-%x-%j.out
 #SBATCH --mail-user=kjb961013@snu.ac.kr
+#SBATCH --mail-type=BEGIN
 set +x
 
 # -c, --cpus-per-task
@@ -30,4 +31,6 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --lr_policy_phase2 SGDR --step 2 --lr_init_phase2 1e-4 --lr_warmup_phase2 500 --lr_step_phase2 1000 --batch_size_phase2 4 --model_weights_path_phase1 /global/cfs/cdirs/m3898/4D_fMRI_Transformer/experiments/ABCD_autoencoder_reconstruction_sex_baseline/ABCD_autoencoder_reconstruction_sex_baseline_epoch_9_batch_index_2205_BEST_val_loss.pth
+# Phase4 : test
+# have some problems here
+srun python main.py --step test --model_weights_path_phase3 ./weights/S1200_fine_tune_binary_classification.pth

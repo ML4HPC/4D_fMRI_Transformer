@@ -38,6 +38,7 @@ def args_logger(args):
 
 def args_to_pkl(args):
     with open(os.path.join(args.experiment_folder,'arguments_as_is.pkl'),'wb') as f:
+        #f.write(vars(args))
         dill.dump(vars(args),f)
 
 def args_to_text(args):

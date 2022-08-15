@@ -25,6 +25,8 @@ from torch.cuda.amp import GradScaler
 # ASP
 #from apex.contrib.sparsity import ASP
 
+from transformers.integrations import init_deepspeed
+
 class Trainer():
     """
     main class to handle training, validation and testing.
@@ -289,7 +291,6 @@ class Trainer():
                 if current_loss_value.isnan().sum() > 0:
                     warnings.warn('found nans in computation')
                     print('at {} loss'.format(loss_name))
-                    
                     self.nan_list+=np.array(input_dict['subject_name'])[(output_dict['reconstructed_fmri_sequence'].reshape(output_dict['reconstructed_fmri_sequence'].shape[0],-1).isnan().sum(axis=1).detach().cpu().numpy() > 0)].tolist()
                     print('current_nan_list:',set(self.nan_list))
                 lamda = current_loss_dict['factor']
@@ -351,7 +352,7 @@ class Trainer():
             'amp_state': amp_state}
         if accuracy is not None:
             ckpt_dict['accuracy'] = accuracy
-        if schedule is not None:
+        if self.lr_handler.schedule is not None:
             ckpt_dict['schedule_state_dict'] = self.lr_handler.schedule.state_dict()
             ckpt_dict['lr'] = self.optimizer.param_groups[0]['lr']
         # 수상한 줄... 은 별 거 없고 이 모델의 path를 받아와서 저장하는 것. 그러면 transformer는 ae의 path를 가지고 있겠군 

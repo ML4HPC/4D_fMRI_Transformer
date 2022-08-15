@@ -41,7 +41,7 @@ def main():
     # subj_list = f.read().splitlines()
     # f.close()
     # for subj in os.listdir(all_files_path):
-    for file_name in subj_list[:]:
+    for file_name in subj_list[3574:]:
         if 'nii.gz' in file_name: #remove ipynb_checkpoint and Untitled.ipynb
             subj_path = os.path.join(abcd_path,file_name)
             subj = file_name.split('-')[1].split('.')[0]

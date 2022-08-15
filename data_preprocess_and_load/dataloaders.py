@@ -94,7 +94,39 @@ class DataHandler():
         
         return training_generator, val_generator, test_generator
 
+    def create_datasets(self):
+        reproducibility(**self.kwargs) #reproducibility를 위한 여러 설정을 위한 함수
+        dataset = self.get_dataset() # self.dataset_name에 의해 결정
+        train_loader = dataset(**self.kwargs) #이름은 loader이나 실제론 dataset class
+        eval_loader = dataset(**self.kwargs)
+        eval_loader.augment = None
+        self.subject_list = train_loader.index_l
+        #print('index_l:',self.subject_list)
+        if self.current_split_exists():
+            train_names, val_names, test_names = self.load_split()
+            train_idx, val_idx, test_idx = self.convert_subject_list_to_idx_list(train_names,val_names,test_names,self.subject_list)
+        else:
+            train_idx,val_idx,test_idx = self.determine_split_randomly(self.subject_list,**self.kwargs)
 
+        # train_idx = [train_idx[x] for x in torch.randperm(len(train_idx))[:1000]]
+        # val_idx = [val_idx[x] for x in torch.randperm(len(val_idx))[:1000]]
+        
+        ## restrict to 1000 datasets
+        #val_idx = list(np.random.choice(len(val_idx), self.num_val_samples, replace=False))
+        
+        #index를 통해 dataset의 일부를 가져오고싶을때 Subset 사용
+        print('length of train_idx:', len(train_idx)) #900984
+        print('length of val_idx:', len(val_idx)) #192473 -> 1000
+        print('length of test_idx:', len(test_idx)) #194774
+        
+        train_loader = Subset(train_loader, train_idx)
+        val_loader = Subset(eval_loader, val_idx)
+        test_loader = Subset(eval_loader, test_idx)
+        
+        
+        return train_loader, val_loader, test_loader
+    
+    
     def get_params(self,eval=False,**kwargs):
         batch_size = kwargs.get('batch_size')
         workers = kwargs.get('workers')

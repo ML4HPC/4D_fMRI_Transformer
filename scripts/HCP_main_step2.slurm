@@ -13,7 +13,6 @@
 #SBATCH --account m3898_g
 #SBATCH --output=slurm_logs/R-%x-%j.out
 #SBATCH --mail-user=kjb961013@snu.ac.kr
-#SBATCH --mail-type=BEGIN
 set +x
 
 # -c, --cpus-per-task
@@ -31,5 +30,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --step 2 --batch_size_phase2 4
-#--model_weights_path_phase1 ../weights/S1200_autoencoder.pth
+srun python main.py --step 2 --batch_size_phase2 4 --model_weights_path_phase1 /global/cfs/cdirs/m3898/4D_fMRI_Transformer/experiments/S1200_autoencoder_reconstruction_sex_baseline/S1200_autoencoder_reconstruction_sex_baseline_epoch_7_batch_index_879_BEST_val_loss.pth --exp_name from_step1

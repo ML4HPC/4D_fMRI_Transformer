@@ -4,7 +4,7 @@
 #SBATCH -C gpu
 #SBATCH -q regular
 #SBATCH -t 6:00:00
-#SBATCH -N 4
+#SBATCH -N 8
 #SBATCH -c 10
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
@@ -13,7 +13,6 @@
 #SBATCH --account m3898_g
 #SBATCH --output=slurm_logs/R-%x-%j.out
 #SBATCH --mail-user=kjb961013@snu.ac.kr
-#SBATCH --mail-type=BEGIN
 set +x
 
 # -c, --cpus-per-task
@@ -31,4 +30,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --step 1 --batch_size_phase1 64
+srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --step 1 --batch_size_phase1 64 --lr_policy_phase2 SGDR  --lr_init_phase1 1e-4 --lr_warmup_phase1 500 --lr_step_phase1 1000 --exp_name SGDR
