@@ -33,7 +33,7 @@ def init_distributed(args):
     # torchrun: sbatch script에서 WORLD_SIZE를 지정해준 경우 (노드 당 gpu * 노드의 수)
     if "WORLD_SIZE" in os.environ: # for torchrun
         args.world_size = int(os.environ["WORLD_SIZE"])
-        print('args.world_size:',args.world_size)
+        #print('args.world_size:',args.world_size)
     elif 'SLURM_NTASKS' in os.environ: # for slurm scheduler
         args.world_size = int(os.environ['SLURM_NTASKS'])
     else:
@@ -54,8 +54,8 @@ def init_distributed(args):
             args.rank = int(os.environ['SLURM_PROCID'])
             args.gpu = args.rank % torch.cuda.device_count()
         
-        print('args.rank:',args.rank)
-        print('args.gpu:',args.gpu)    
+        #print('args.rank:',args.rank)
+        #print('args.gpu:',args.gpu)    
         sync_file = _get_sync_file()
         dist.init_process_group(backend=args.dist_backend, init_method=sync_file,
                             world_size=args.world_size, rank=args.rank)

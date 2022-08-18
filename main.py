@@ -180,6 +180,8 @@ def test(args,model_weights_path):
 
 if __name__ == '__main__':
     base_path = os.getcwd() 
+    setup_folders(base_path) 
+    args = get_arguments(base_path)
 
     # DDP initialization
     init_distributed(args)

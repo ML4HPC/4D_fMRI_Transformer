@@ -26,6 +26,8 @@ def get_intense_voxels(yy,shape,gpu):
     y1[y1<=y1[:,0:1]]=0
     y1 = abs(y1)
     
+    low_quantile, high_quantile = (0.9,0.99)
+    
     to_quantile = 1 - ((y1>y1[:,0:1]).sum(dim=1) / y1.shape[1] * (1-low_quantile))
     
     voxels = (y1 > torch.quantile(y1, to_quantile, dim=1).diag().unsqueeze(1))
