@@ -19,7 +19,7 @@ def get_intense_voxels(yy,shape,gpu):
     return voxels.view(shape)>0
     '''
     
-    y1 = yy.clone().cuda(gpu)
+    y1 = yy.clone()
     b, h, w, d, t = y1.shape
     
     y1 = y1.permute(0,4,1,2,3).contiguous().view(b*t, h*w*d)

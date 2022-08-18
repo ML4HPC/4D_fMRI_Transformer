@@ -108,7 +108,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_step_phase2', type=int, default=1000)
     parser.add_argument('--lr_warmup_phase2', type=int, default=500)
     parser.add_argument('--sequence_length_phase2', default=20)
-    parser.add_argument('--workers_phase2', default=4)
+    parser.add_argument('--workers_phase2', type=int, default=4)
     parser.add_argument('--model_weights_path_phase1', default=None)
 
     ##phase 3
@@ -125,7 +125,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_step_phase3', type=int, default=1500)
     parser.add_argument('--lr_warmup_phase3', type=int, default=100)
     parser.add_argument('--sequence_length_phase3', default=20)
-    parser.add_argument('--workers_phase3', default=4)
+    parser.add_argument('--workers_phase3', type=int, default=4)
     parser.add_argument('--model_weights_path_phase2', default=None)
     
     ##phase 4 (test)
