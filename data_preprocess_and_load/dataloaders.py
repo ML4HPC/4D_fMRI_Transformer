@@ -72,8 +72,8 @@ class DataHandler():
         
         if self.kwargs.get('distributed'):
             train_sampler = DistributedSampler(train_loader , shuffle=True)
-            valid_sampler = DistributedSampler(val_loader, shuffle=True)
-            test_sampler = DistributedSampler(test_loader, shuffle=True)
+            valid_sampler = DistributedSampler(val_loader, shuffle=False)
+            test_sampler = DistributedSampler(test_loader, shuffle=False)
         else:
             train_sampler = RandomSampler(train_loader)
             valid_sampler = RandomSampler(val_loader)
@@ -131,8 +131,8 @@ class DataHandler():
         batch_size = kwargs.get('batch_size')
         workers = kwargs.get('workers')
         cuda = kwargs.get('cuda')
-        if eval:
-            workers = 0
+        #if eval:
+        #    workers = 0
         params = {'batch_size': batch_size,
                   #'shuffle': True,
                   'num_workers': workers,
