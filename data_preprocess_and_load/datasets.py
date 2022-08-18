@@ -179,7 +179,7 @@ class DummyDataset(BaseDataset):
         self.register_args(**kwargs)
         self.sequence_length = kwargs.get('sequence_length')
         self.total_samples = 1000
-        self.y = torch.randn((self.total_samples, 2, 74, 95, 80, self.sequence_length))
+        # self.y = torch.randn((self.total_samples, 2, 74, 95, 80, self.sequence_length))
         self.sex = torch.randint(0,2,(self.total_samples,))
         self.age = torch.randn(self.total_samples)
         self.TR = torch.randint(20,300,(self.total_samples,))
@@ -190,8 +190,8 @@ class DummyDataset(BaseDataset):
         return self.total_samples
 
     def __getitem__(self,idx):
-        seq_idx, subj, TR, age, sex = self.index_l[idx]
-        y = self.y[seq_idx]
+        _, subj, TR, age, sex = self.index_l[idx]
+        y = torch.randn((1, 2, 74, 95, 80, self.sequence_length))
         return {'fmri_sequence':y,'subject':subj,'sex':sex,'age':age,'TR':TR}
             
     def get_input_shape(self):
