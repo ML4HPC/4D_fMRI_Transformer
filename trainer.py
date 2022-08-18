@@ -168,8 +168,8 @@ class Trainer():
                 self.writer.accuracy_summary(mid_epoch=False)
                 self.writer.save_history_to_csv()
                 self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
-            else:
-                dist.barrier()
+            # else:
+            #     dist.barrier()
             end = time.time()
             
             print(f'time taken to perform {epoch}: {end-start:.2f}')
