@@ -1,4 +1,4 @@
-from utils import *
+from utils import *  #including 'init_distributed', 'weight_loader'
 from trainer import Trainer
 import os
 from pathlib import Path
@@ -16,10 +16,6 @@ from torch.cuda.amp import GradScaler, autocast
 # ASP
 #from apex.contrib.sparsity import ASP
 
-
-# for data parallel
-# torch.distributed.init_process_group(
-#      backend='nccl', world_size=4, rank=int(os.environ["LOCAL_RANK"]), store=None)
 
 #os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
@@ -63,10 +59,11 @@ def get_arguments(base_path):
                         help='number of nodes for distributed training')
     parser.add_argument('--rank', default=-1, type=int, 
                         help='node rank for distributed training')
-    parser.add_argument('--dist_backend', default='nccl', type=str, 
-                        help='distributed backend')
     parser.add_argument('--local_rank', default=-1, type=int, 
                         help='local rank for distributed training')
+    parser.add_argument('--dist_backend', default='nccl', type=str, 
+                        help='distributed backend')
+    
 
     # AMP configs:
     parser.add_argument('--amp', action='store_false')
@@ -134,18 +131,14 @@ def get_arguments(base_path):
     ##phase 4 (test)
     parser.add_argument('--model_weights_path_phase3', default=None)
     
-    
     args = parser.parse_args()
     return args
 
-def setup_folders(): #cuda_num):
-    #cuda_num = str(cuda_num)
-    #os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
-    base_path = os.getcwd() # 스크립트를 돌린 위치가 base_path가 됨 - 이 python file이 있는 곳 (지금은 TFF 디렉토리)
-    os.makedirs(os.path.join(base_path,'experiments'),exist_ok=True) #여기서^^ 여기서 4개씩 막 만들어지는구나?
+def setup_folders(base_path): 
+    os.makedirs(os.path.join(base_path,'experiments'),exist_ok=True) 
     os.makedirs(os.path.join(base_path,'runs'),exist_ok=True)
     os.makedirs(os.path.join(base_path, 'splits'), exist_ok=True)
-    return base_path
+    return None
 
 def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     """
@@ -176,8 +169,7 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     model_weights_path = os.path.join(trainer.writer.experiment_folder,trainer.writer.experiment_title + '_BEST_val_{}.pth'.format(critical_metric))
     
     return model_weights_path
-    # run해서 model_weights_path를 뽑아내는 형태. 근데 왜 BEST_val_loss.pth 같은 게 안 나오지..? 아.. 이거 다 끝나야 저장되는거구나..
-    # epoch 9의 BEST val.pth를 뽑아다가 써야 함.
+
 
 def test(args,model_weights_path):
     experiment_folder = '{}_{}_{}'.format(args.dataset_name, 'test_{}'.format(args.fine_tune_task), datestamp())
@@ -186,86 +178,17 @@ def test(args,model_weights_path):
     trainer = Trainer(experiment_folder, '3', args, ['test'], model_weights_path)
     trainer.testing()
 
-def _get_sync_file():    
-        """Logic for naming sync file using slurm env variables"""
-        sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH']
-        os.makedirs(sync_file_dir, exist_ok=True)
-
-        #temporally add two lines below for torchrun
-        try:
-            sync_file = 'file://%s/pytorch_sync.%s.%s' % (
-            sync_file_dir, os.environ['SLURM_JOB_ID'], os.environ['SLURM_STEP_ID'])
-        except KeyError as k:
-            sync_file = 'file://%s/pytorch_sync.%s.%s' % (
-            sync_file_dir, '12345', '12345')
-        return sync_file
-
-def weight_loader(args):
-    model_weights_path = None
-    try:
-        if args.step == '1' :
-            task = 'autoencoder_reconstruction'          
-        elif args.step == '2':
-            task = 'tranformer_reconstruction'
-            if os.path.exists(args.model_weights_path_phase1):
-                model_weights_path = args.model_weights_path_phase1 
-        elif args.step == '3':
-            task = 'fine_tune_{}'.format(args.fine_tune_task)
-            if os.path.exists(args.model_weights_path_phase2):
-                model_weights_path = args.model_weights_path_phase2
-        elif args.step == 'test':
-            task = None
-            if os.path.exists(args.model_weights_path_phase3):
-                model_weights_path = args.model_weights_path_phase3
-    except:
-            #if no weights were provided
-            model_weights_path = None 
-
-    
-    # print(f'loading weight from {model_weights_path}')
-    return model_weights_path, args.step, task
-    
-    
-
-    
-def main(base_path):
+if __name__ == '__main__':
+    base_path = os.getcwd() 
+    setup_folders(base_path) 
     args = get_arguments(base_path)
-    
-    ### DDP         
-    # sbatch script에서 WORLD_SIZE를 지정해준 경우 (노드 당 gpu * 노드의 수)
-    if "WORLD_SIZE" in os.environ:
-        args.world_size = int(os.environ["WORLD_SIZE"])
-    # 혹은 슬럼에서 자동으로 ntasks per node * nodes 로 구해줌
-    elif 'SLURM_NTASKS' in os.environ:
-        args.world_size = int(os.environ['SLURM_NTASKS'])
-        
-    args.distributed = args.world_size > 1
-    ngpus_per_node = torch.cuda.device_count()
-    
-    if args.distributed:
-        #args.local_rank = int(os.environ['LOCAL_RANK']) #stella added this line
-        if args.local_rank != -1: # for torchrun
-            args.rank = int(os.environ["LOCAL_RANK"])
-            args.gpu = int(os.environ["LOCAL_RANK"])
-        elif 'SLURM_PROCID' in os.environ: # for slurm scheduler
-            args.rank = int(os.environ['SLURM_PROCID'])
-            args.gpu = args.rank % torch.cuda.device_count()
-        sync_file = _get_sync_file()
-        dist.init_process_group(backend=args.dist_backend, init_method=sync_file,
-                            world_size=args.world_size, rank=args.rank)
-    else:
-        args.rank = 0
-        args.gpu = 0
 
-    # suppress printing if not on master gpu
-    if args.rank!=0:
-        def print_pass(*args):
-            pass
-        builtins.print = print_pass
-    
+    # DDP initialization
+    init_distributed(args)
+
     # load weights that you specified at the Argument
     model_weights_path, step, task = weight_loader(args)
-    
+
     if step == 'test' :
         print(f'starting testing')
         test(args, model_weights_path) # have some problems here
@@ -273,8 +196,3 @@ def main(base_path):
         print(f'starting phase{step}: {task}')
         run_phase(args,model_weights_path,step,task)
         print(f'finishing phase{step}: {task}')
-        
-if __name__ == '__main__':
-    base_path = setup_folders() #cuda_num=0) #현재는 gpu 0번만 쓰는 상태 -> i see - > gpu 0, 1, 2, 3으로 바꿨음.
-    main(base_path)
-
