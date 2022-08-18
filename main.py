@@ -91,8 +91,8 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase1', type=float, default=0.97)
     parser.add_argument('--lr_step_phase1', type=int, default=500)
     parser.add_argument('--lr_warmup_phase1', type=int, default=500)
-    parser.add_argument('--sequence_length_phase1', default=1)
-    parser.add_argument('--workers_phase1', default=4)
+    parser.add_argument('--sequence_length_phase1', type=int ,default=1)
+    parser.add_argument('--workers_phase1', type=int,default=4)
 
     ##phase 2
     parser.add_argument('--task_phase2', type=str, default='transformer_reconstruction')
@@ -180,8 +180,6 @@ def test(args,model_weights_path):
 
 if __name__ == '__main__':
     base_path = os.getcwd() 
-    setup_folders(base_path) 
-    args = get_arguments(base_path)
 
     # DDP initialization
     init_distributed(args)

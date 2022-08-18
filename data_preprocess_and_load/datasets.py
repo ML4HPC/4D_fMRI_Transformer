@@ -191,7 +191,7 @@ class DummyDataset(BaseDataset):
 
     def __getitem__(self,idx):
         _, subj, TR, age, sex = self.index_l[idx]
-        y = torch.randn((1, 2, 74, 95, 80, self.sequence_length))
+        y = torch.randn(( 2, 74, 95, 80, self.sequence_length)) #self.y[seq_idx]
         return {'fmri_sequence':y,'subject':subj,'sex':sex,'age':age,'TR':TR}
             
     def get_input_shape(self):
