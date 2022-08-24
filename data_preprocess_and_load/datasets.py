@@ -15,7 +15,7 @@ class BaseDataset(Dataset):
         self.device = None#torch.device('cuda') if kwargs.get('cuda') else torch.device('cpu')
         self.index_l = []
         self.norm = 'global_normalize'
-        self.complementary = 'per_voxel_normalize'
+        self.complementary = None #'per_voxel_normalize'
         self.random_TR = kwargs.get('random_TR')
         self.target = kwargs.get('target')
         self.fine_tune_task = kwargs.get('fine_tune_task')

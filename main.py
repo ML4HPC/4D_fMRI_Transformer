@@ -52,7 +52,9 @@ def get_arguments(base_path):
     parser.add_argument('--which_perceptual', default='vgg', choices=['vgg','densenet3d'])
     
     parser.add_argument('--reconstruction_factor', default=1)
-    parser.add_argument('--transformer_hidden_layers', default=2)
+    parser.add_argument('--transformer_hidden_layers', type=int,default=16)
+    parser.add_argument('--transformer_num_attention_heads',type=int, default=16)
+    parser.add_argument('--transformer_emb_size',type=int ,default=2640)
     parser.add_argument('--train_split', default=0.7)
     parser.add_argument('--val_split', default=0.15)
     parser.add_argument('--running_mean_size', default=5000)
@@ -110,7 +112,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase2', type=float, default=0.97)
     parser.add_argument('--lr_step_phase2', type=int, default=1000)
     parser.add_argument('--lr_warmup_phase2', type=int, default=500)
-    parser.add_argument('--sequence_length_phase2', default=20)
+    parser.add_argument('--sequence_length_phase2',type=int, default=20)
     parser.add_argument('--workers_phase2', type=int, default=4)
     parser.add_argument('--model_weights_path_phase1', default=None)
     parser.add_argument('--use_cont_loss', default=False)
@@ -129,7 +131,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase3', type=float, default=0.9)
     parser.add_argument('--lr_step_phase3', type=int, default=1500)
     parser.add_argument('--lr_warmup_phase3', type=int, default=100)
-    parser.add_argument('--sequence_length_phase3', default=20)
+    parser.add_argument('--sequence_length_phase3', type=int,default=20)
     parser.add_argument('--workers_phase3', type=int, default=4)
     parser.add_argument('--model_weights_path_phase2', default=None)
     
@@ -159,7 +161,6 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     args.experiment_title = experiment_folder.name
     
     
-    # args.local_rank = os.environ["LOCAL_RANK"]
     fine_tune_task = args.fine_tune_task
     print(f'saving the results at {args.experiment_folder}')
     args_logger(args)

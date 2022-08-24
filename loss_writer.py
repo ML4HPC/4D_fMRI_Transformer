@@ -138,7 +138,7 @@ class Writer():
                        'regression':
                            {'is_active':False,'criterion':MSELoss(),'factor':1}}  #changed from L1Loss to MSELoss 
         if 'reconstruction' in kwargs.get('task').lower():
-            self.losses['intensity']['is_active'] = True
+            #self.losses['intensity']['is_active'] = True
             self.losses['perceptual']['is_active'] = True
             self.losses['reconstruction']['is_active'] = True
             if 'tran' in kwargs.get('task').lower() and kwargs.get('use_cont_loss'):

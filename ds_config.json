@@ -18,7 +18,6 @@
       "weight_decay": 1e-7
     }
   },
-
     "scheduler": {
         "type": "WarmupDecayLR",
         "params": {

@@ -40,17 +40,17 @@ class BaseModel(nn.Module, ABC):
         hook2.remove()
 
     def register_vars(self,**kwargs):
-        intermediate_vec = 2640 # embedding size(h) # 2640 
+        intermediate_vec = kwargs.get('transformer_emb_size')
         # Dropout rates for each layer
         if kwargs.get('task') == 'fine_tune':
             self.dropout_rates = {'input': 0, 'green': 0.35,'Up_green': 0,'transformer':0.1}
         else:
             self.dropout_rates = {'input': 0, 'green': 0.2, 'Up_green': 0.2,'transformer':0.1}
 
-        self.BertConfig = BertConfig(hidden_size=intermediate_vec, vocab_size=1,
+        self.BertConfig = BertConfig(hidden_size=kwargs.get('transformer_emb_size'), vocab_size=1,
                                      num_hidden_layers=kwargs.get('transformer_hidden_layers'),
-                                     num_attention_heads=16, max_position_embeddings=30,
-                                     hidden_dropout_prob=self.dropout_rates['transformer'])
+                                     num_attention_heads=kwargs.get('transformer_num_attention_heads'), max_position_embeddings=kwargs.get('sequence_length')+1,
+                                     hidden_dropout_prob=self.dropout_rates['transformer'])#, torchscript=True)
         # max_position_embeddings : The maximum sequence length that this model might
         #                           ever be used with. Typically set this to something large just in case
         #                           (e.g., 512 or 1024 or 2048).
@@ -151,10 +151,18 @@ class Encoder(BaseModel):
             ('green33', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green']))]))
 
     def forward(self,x):
+        torch.cuda.nvtx.range_push("down_block1")
         x = self.down_block1(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("down_block2")
         x = self.down_block2(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("down_block3")
         x = self.down_block3(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("final_block")
         x = self.final_block(x)
+        torch.cuda.nvtx.range_pop()
         return x
 
 
@@ -270,6 +278,8 @@ class Transformer_Block(BertPreTrainedModel, BaseModel):
         self.register_vars(**kwargs)
         self.cls_pooling = True
         self.bert = BertModel(self.BertConfig, add_pooling_layer=self.cls_pooling)
+        #self.bert = torch.jit.trace(self.bert, torch.ones((1, 20))) #, self.BertConfig.hidden_size)))
+        #torch._C._jit_set_autocast_mode(True)
         self.init_weights()
         self.register_buffer('cls_id', (torch.ones((1, 1, self.BertConfig.hidden_size)) * 0.5),persistent=False)
         #self.cls_id = torch.ones(1, 1, self.BertConfig.hidden_size, device=kwargs.get('gpu'), requires_grad=False) * 0.5 # nn.Parameter(torch.ones(1, 1, self.BertConfig.hidden_size) * 0.5)
@@ -344,22 +354,24 @@ class Encoder_Transformer_Decoder(BaseModel):
         x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, inChannels, W, H, D)
         # changed from NCHDW to NHWDC format for accellerating
         x = x.contiguous(memory_format=torch.channels_last_3d) 
-        
-        encoded = self.encoder(x) # torch.Size([20, 32, 10, 12, 11])
-        
-        encoded = self.into_bert(encoded) # torch.Size([20, 2640])
-        
-        encoded = encoded.reshape(batch_size, T, -1) # torch.Size([1, 20, 2640])
-        
+        torch.cuda.nvtx.range_push("Encoder") 
+        encoded = self.encoder(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("into_bert")
+        encoded = self.into_bert(encoded)
+        torch.cuda.nvtx.range_pop()
+        encoded = encoded.reshape(batch_size, T, -1)
         torch.cuda.nvtx.range_push("transformer")
         transformer_dict = self.transformer(encoded)
         transformer_sequence = transformer_dict['sequence']
         torch.cuda.nvtx.range_pop()
-        torch.cuda.nvtx.range_push("reshape")
         out = transformer_dict['sequence'].reshape(batch_size * T, -1)
-        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("from_bert")
         out = self.from_bert(out)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("decoder")
         reconstructed_image = self.decoder(out)
+        torch.cuda.nvtx.range_pop()
         reconstructed_image = reconstructed_image.reshape(batch_size, T, self.outChannels, W, H, D).permute(0, 2, 3, 4, 5, 1)
         
         # for masked loss

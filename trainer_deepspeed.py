@@ -39,7 +39,7 @@ class Trainer():
         # self.lr_handler = LrHandler(**kwargs)
         
         #deepspeed : changed from create_dataloaders to create_datasets
-        self.train_loader, self.val_loader, _ = DataHandler(**kwargs).create_datasets()   
+        self.train_loader, self.val_loader, _ = DataHandler(**kwargs).create_dataloaders()   
         
         self.create_model()
         
@@ -52,7 +52,7 @@ class Trainer():
         # self.scaler = GradScaler() 
         
         if self.deepspeed:   
-            self.model_engine, self.optimizer, self.train_loader ,self.lr_scheduler = deepspeed.initialize(args=self,model = self.model,model_parameters = self.model.parameters(), training_data=self.train_loader)      
+            self.model_engine, self.optimizer, _ ,self.lr_scheduler = deepspeed.initialize(args=self,model = self.model,model_parameters = self.model.parameters()) #training_data=self.train_loader)      
              
         self.eval_iter = 0
         self.batch_index = None
@@ -145,8 +145,7 @@ class Trainer():
     #     self.optimizer = getattr(torch.optim,optim)(params, lr=lr, weight_decay=weight_decay)  #torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
 
     def create_model(self):
-        #deepspeed
-        dim = self.train_loader.dataset.get_input_shape()
+        dim = self.train_loader.dataset.dataset.get_input_shape()
         if self.task.lower() == 'fine_tune':
             self.model = Encoder_Transformer_finetune(dim,**self.kwargs)
         elif self.task.lower() == 'autoencoder_reconstruction':
@@ -197,14 +196,14 @@ class Trainer():
             self.writer.save_history_to_csv()
             #self.save_checkpoint_(epoch, len(self.train_loader), self.scaler)
             
-            client_sd = Dict()
+            client_sd = dict()
             client_sd['epoch'] = epoch
             client_sd['loss_value'] = self.get_last_loss()
             client_sd['accuracy'] = self.get_last_accuracy()
             ckpt_id = epoch
             save_dir = self.writer.experiment_folder
     
-            self.model_engine.save_checkpoint(save_dir, ckpt_id, client_sd = client_sd)
+            self.model_engine.save_checkpoint(save_dir, ckpt_id, client_state = client_sd)
             
             
             # if (not self.distributed) or self.rank == 0 :

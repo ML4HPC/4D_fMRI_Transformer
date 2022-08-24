@@ -49,6 +49,8 @@ def get_arguments(base_path):
     parser.add_argument('--perceptual_factor', default=1)
     parser.add_argument('--reconstruction_factor', default=1)
     parser.add_argument('--transformer_hidden_layers', default=2)
+    parser.add_argument('--transformer_num_attention_heads',type=int, default=16)
+    parser.add_argument('--transformer_emb_size',type=int ,default=2640)
     parser.add_argument('--train_split', default=0.7)
     parser.add_argument('--val_split', default=0.15)
     parser.add_argument('--running_mean_size', default=5000)
@@ -88,7 +90,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase1', type=float, default=0.97)
     parser.add_argument('--lr_step_phase1', type=int, default=500)
     parser.add_argument('--lr_warmup_phase1', type=int, default=500)
-    parser.add_argument('--sequence_length_phase1', default=1)
+    parser.add_argument('--sequence_length_phase1',type=int, default=1)
     parser.add_argument('--workers_phase1', default=4)
 
     ##phase 2
@@ -104,7 +106,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase2', type=float, default=0.97)
     parser.add_argument('--lr_step_phase2', type=int, default=1000)
     parser.add_argument('--lr_warmup_phase2', type=int, default=500)
-    parser.add_argument('--sequence_length_phase2', default=20)
+    parser.add_argument('--sequence_length_phase2',type=int, default=20)
     parser.add_argument('--workers_phase2', default=4)
     parser.add_argument('--model_weights_path_phase1', default=None)
 
@@ -121,7 +123,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase3', type=float, default=0.9)
     parser.add_argument('--lr_step_phase3', type=int, default=1500)
     parser.add_argument('--lr_warmup_phase3', type=int, default=100)
-    parser.add_argument('--sequence_length_phase3', default=20)
+    parser.add_argument('--sequence_length_phase3',type=int, default=20)
     parser.add_argument('--workers_phase3', default=4)
     parser.add_argument('--model_weights_path_phase2', default=None)
     
@@ -134,10 +136,7 @@ def get_arguments(base_path):
     args = parser.parse_args()
     return args
 
-def setup_folders(): #cuda_num):
-    #cuda_num = str(cuda_num)
-    #os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
-    base_path = os.getcwd() # 스크립트를 돌린 위치가 base_path가 됨 - 이 python file이 있는 곳 (지금은 TFF 디렉토리)
+def setup_folders(base_path): #cuda_num):
     os.makedirs(os.path.join(base_path,'experiments'),exist_ok=True) #여기서^^ 여기서 4개씩 막 만들어지는구나?
     os.makedirs(os.path.join(base_path,'runs'),exist_ok=True)
     os.makedirs(os.path.join(base_path, 'splits'), exist_ok=True)
@@ -181,20 +180,6 @@ def test(args,model_weights_path):
     trainer = Trainer(experiment_folder, '3', args, ['test'], model_weights_path)
     trainer.testing()
 
-def _get_sync_file():    
-        """Logic for naming sync file using slurm env variables"""
-        sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH']
-        os.makedirs(sync_file_dir, exist_ok=True)
-
-        #temporally add two lines below for torch.distributed.launcher
-        try:
-            sync_file = 'file://%s/pytorch_sync.%s.%s' % (
-            sync_file_dir, os.environ['SLURM_JOB_ID'], os.environ['SLURM_STEP_ID'])
-        except KeyError as k:
-            sync_file = 'file://%s/pytorch_sync.%s.%s' % (
-            sync_file_dir, '12345', '12345')
-        return sync_file
-
 def weight_loader(args):
     model_weights_path = None
     try:
@@ -220,52 +205,17 @@ def weight_loader(args):
     # print(f'loading weight from {model_weights_path}')
     return model_weights_path, args.step, task
     
-    
-
-    
-def main(base_path):
+if __name__ == '__main__':
+    base_path = os.getcwd()
+    setup_folders(base_path)
     args = get_arguments(base_path)
-    
-    ### DDP         
-    # sbatch script에서 WORLD_SIZE를 지정해준 경우 (노드 당 gpu * 노드의 수)
-    if "WORLD_SIZE" in os.environ:
-        args.world_size = int(os.environ["WORLD_SIZE"])
-    # 혹은 슬럼에서 자동으로 ntasks per node * nodes 로 구해줌
-    elif 'SLURM_NTASKS' in os.environ:
-        args.world_size = int(os.environ['SLURM_NTASKS'])
-        
-    args.distributed = args.world_size > 1
-    ngpus_per_node = torch.cuda.device_count()
-    
-    if args.distributed:
-        #args.local_rank = int(os.environ['LOCAL_RANK']) #stella added this line
-        if args.local_rank != -1: # for torchrun
-            args.rank = int(os.environ["LOCAL_RANK"])
-            args.gpu = int(os.environ["LOCAL_RANK"])
-        elif 'SLURM_PROCID' in os.environ: # for slurm scheduler
-            args.rank = int(os.environ['SLURM_PROCID'])
-            args.gpu = args.rank % torch.cuda.device_count()
-        sync_file = _get_sync_file()
-        if args.deepspeed:
-            #deepspeed.init_distributed()
-            pass
-        else:    
-            dist.init_process_group(backend=args.dist_backend, init_method=sync_file,
-                                world_size=args.world_size, rank=args.rank)
-            
-    else:
-        args.rank = 0
-        args.gpu = 0
 
-    # suppress printing if not on master gpu
-    if args.rank!=0:
-        def print_pass(*args):
-            pass
-        builtins.print = print_pass
-    
+    # DDP initialization
+    init_distributed(args)
+
     # load weights that you specified at the Argument
     model_weights_path, step, task = weight_loader(args)
-    
+
     if step == 'test' :
         print(f'starting testing')
         test(args, model_weights_path) # have some problems here
@@ -273,8 +223,3 @@ def main(base_path):
         print(f'starting phase{step}: {task}')
         run_phase(args,model_weights_path,step,task)
         print(f'finishing phase{step}: {task}')
-        
-if __name__ == '__main__':
-    base_path = setup_folders() #cuda_num=0) #현재는 gpu 0번만 쓰는 상태 -> i see - > gpu 0, 1, 2, 3으로 바꿨음.
-    main(base_path)
-

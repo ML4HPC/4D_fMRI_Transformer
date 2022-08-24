@@ -47,11 +47,37 @@ class GreenBlock(nn.Module):
             ('conv2', nn.Conv3d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)),
         ]))
 
+        #self.group_norm0 = nn.GroupNorm(num_channels=in_channels, num_groups=in_channels // 4)
+        #self.relu0 = nn.LeakyReLU(inplace=True)
+        #self.conv0 = nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        #self.group_norm1 = nn.GroupNorm(num_channels=out_channels, num_groups=in_channels // 4)
+        #self.relu1 = nn.LeakyReLU(inplace=True)
+        #self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+
     def forward(self, inputs):
-        #x_res = self.res(inputs)
         x_res = inputs
+        #torch.cuda.nvtx.range_push("groupnorm0")
+        #x = self.group_norm0(inputs)
+        #torch.cuda.nvtx.range_pop()
+        #torch.cuda.nvtx.range_push("relu0")
+        #x = self.relu0(x)
+        #torch.cuda.nvtx.range_pop()
+        #torch.cuda.nvtx.range_push("conv0")
+        #x = self.conv0(x)
+        #torch.cuda.nvtx.range_pop()
+        #torch.cuda.nvtx.range_push("groupnorm1")
+        #x = self.group_norm1(x)
+        #torch.cuda.nvtx.range_pop()
+        #torch.cuda.nvtx.range_push("relu1")
+        #x = self.relu1(x)
+        #torch.cuda.nvtx.range_pop()
+        #torch.cuda.nvtx.range_push("conv2")
+        #x = self.conv2(x)
+        #torch.cuda.nvtx.range_pop()
+        #torch.cuda.nvtx.range_push("dropout")
+        #x = torch.nn.functional.dropout(x, p=self.Drop_Rate, training=self.training)
+        #torch.cuda.nvtx.range_pop()
         x = torch.nn.functional.dropout(self.block(inputs), p=self.Drop_Rate, training=self.training)
-        #return torch.cat([x, x_res], dim=1)
         return x + x_res
 
 

@@ -25,6 +25,8 @@ from torch.cuda.amp import GradScaler
 # ASP
 #from apex.contrib.sparsity import ASP
 
+from apex.optimizers import FusedAdam
+
 
 class Trainer():
     """
@@ -113,8 +115,15 @@ class Trainer():
         lr = self.lr_handler.base_lr
         params = self.model.parameters()
         weight_decay = self.kwargs.get('weight_decay')
-        optim = self.kwargs.get('optim')
-        self.optimizer = getattr(torch.optim,optim)(params, lr=lr, weight_decay=weight_decay)  #torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
+        self.optimizer = FusedAdam(params, lr=lr, weight_decay=weight_decay)
+        #optim = self.kwargs.get('optim')
+        #self.optimizer = getattr(torch.optim,optim)(params, lr=lr, weight_decay=weight_decay)  #torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
+        
+        # attach optimizer to cuda device.
+        #for state in self.optimizer.state.values():
+        #    for k, v in state.items():
+        #        if isinstance(v, torch.Tensor):
+        #            state[k] = v.cuda(self.gpu)
 
     def create_model(self):
         dim = self.train_loader.dataset.dataset.get_input_shape()
@@ -200,9 +209,13 @@ class Trainer():
                 if  (batch_idx + 1) % self.accumulation_steps == 0: # gradient accumulation
                     # gradient clipping 
                     if self.gradient_clipping == True:
+                        torch.cuda.nvtx.range_push("unscale")
                         self.scaler.unscale_(self.optimizer)
+                        torch.cuda.nvtx.range_pop()
+                        torch.cuda.nvtx.range_push("gradient_clipping")
                         print('executing gradient clipping')
                         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1, error_if_nonfinite=False)
+                        torch.cuda.nvtx.range_pop()
                     
                     torch.cuda.nvtx.range_push("optimize")
                     self.scaler.step(self.optimizer)
@@ -210,14 +223,18 @@ class Trainer():
                     scale = self.scaler.get_scale()
                     self.scaler.update()
                     skip_lr_sched = (scale > self.scaler.get_scale())
-                
+                if not skip_lr_sched:
+                    self.lr_handler.schedule_check_and_update(self.optimizer) 
             else:
+                torch.cuda.nvtx.range_push("forward pass")
                 loss_dict, loss = self.forward_pass(input_dict)
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push("backward pass")
                 loss.backward()
+                torch.cuda.nvtx.range_pop()
+                torch.cuda.nvtx.range_push("optimize")
                 self.optimizer.step()
-                
-                
-            if not skip_lr_sched:
+                torch.cuda.nvtx.range_pop()
                 self.lr_handler.schedule_check_and_update(self.optimizer)
             self.writer.write_losses(loss_dict, set='train')
             
@@ -393,10 +410,10 @@ class Trainer():
         torch.cuda.nvtx.range_push("get_intensity_voxels")
         voxels = get_intense_voxels(per_voxel, output_dict['reconstructed_fmri_sequence'].shape, self.gpu) 
         torch.cuda.nvtx.range_pop()
-        output_intense = output_dict['reconstructed_fmri_sequence'][voxels]
-        truth_intense = input_dict['fmri_sequence'][:,0][voxels.squeeze(1)]
+        output_intense = output_dict['reconstructed_fmri_sequence'] * voxels  #[voxels]
+        truth_intense = input_dict['fmri_sequence'][:,0] * voxels.squeeze(1) #[voxels.squeeze(1)]
         torch.cuda.nvtx.range_push("self.intensity_loss_func")
-        intensity_loss = self.intensity_loss_func(output_intense.squeeze(), truth_intense)
+        intensity_loss = self.intensity_loss_func(output_intense.squeeze(), truth_intense.squeeze())
         torch.cuda.nvtx.range_pop()
         return intensity_loss
 

@@ -16,7 +16,8 @@ def _get_sync_file():
         if 'SCRATCH' in os.environ:
             sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH'] # Perlmutter
         else:
-            raise Exception('there is no env variable SCRATCH. Please check sync_file dir')
+            sync_file_dir = '%s/pytorch-sync-files' % '/home/be62tdqc'
+            #raise Exception('there is no env variable SCRATCH. Please check sync_file dir')
         os.makedirs(sync_file_dir, exist_ok=True)
 
         #temporally add two lines below for torchrun
@@ -25,7 +26,7 @@ def _get_sync_file():
             sync_file_dir, os.environ['SLURM_JOB_ID'], os.environ['SLURM_STEP_ID'])
         else:
             sync_file = 'file://%s/pytorch_sync.%s.%s' % (
-            sync_file_dir, '12345', '12345')
+            sync_file_dir, '10004', '10003')
         return sync_file
     
     
@@ -105,7 +106,7 @@ def reproducibility(**kwargs):
     if cuda:
         torch.cuda.manual_seed(seed)
     np.random.seed(seed)
-    cudnn.deterministic = True
+    cudnn.deterministic = False #True
     cudnn.benchmark = True
 
 def sort_args(phase, args):
