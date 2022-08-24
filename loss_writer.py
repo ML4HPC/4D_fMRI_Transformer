@@ -1,5 +1,5 @@
 from torch.nn import MSELoss,L1Loss,BCELoss, BCEWithLogitsLoss
-from losses import Percept_Loss
+from losses import Percept_Loss, Cont_Loss, Mask_Loss
 import csv
 import os
 from torch.utils.tensorboard import SummaryWriter
@@ -129,6 +129,10 @@ class Writer():
                            {'is_active':False,'criterion': Percept_Loss(**kwargs),'factor':kwargs.get('perceptual_factor')},
                        'reconstruction':
                            {'is_active':False,'criterion':L1Loss(),'factor':kwargs.get('reconstruction_factor')},
+                       'contrastive':
+                           {'is_active':False,'criterion': Cont_Loss(**kwargs),'factor':1}, #Stella added this
+                       'mask':
+                           {'is_active':False,'criterion': Mask_Loss(**kwargs),'factor':1}, #Stella added this
                        'binary_classification':
                            {'is_active':False,'criterion': BCEWithLogitsLoss(),'factor':1}, #originally BCELoss(). Stella changed it
                        'regression':
@@ -137,6 +141,11 @@ class Writer():
             self.losses['intensity']['is_active'] = True
             self.losses['perceptual']['is_active'] = True
             self.losses['reconstruction']['is_active'] = True
+            if 'tran' in kwargs.get('task').lower() and kwargs.get('use_cont_loss'):
+                self.losses['contrastive']['is_active'] = True
+            if 'tran' in kwargs.get('task').lower() and kwargs.get('use_mask_loss'):
+                self.losses['mask']['is_active'] = True
+            
         elif kwargs.get('task').lower() == 'fine_tune':
             if kwargs.get('fine_tune_task').lower() == 'regression':
                 self.losses['regression']['is_active'] = True

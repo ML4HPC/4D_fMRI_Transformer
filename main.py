@@ -47,7 +47,10 @@ def get_arguments(base_path):
     parser.add_argument('--random_TR', action='store_false') #True면(인자를 넣어주지 않으면) 전체 sequence 로부터 random sampling(default). False면 (--random_TR 인자를 넣어주면) 0번째 TR부터 sliding window
     
     parser.add_argument('--intensity_factor', default=1)
+    
     parser.add_argument('--perceptual_factor', default=1)
+    parser.add_argument('--which_perceptual', default='vgg', choices=['vgg','densenet3d'])
+    
     parser.add_argument('--reconstruction_factor', default=1)
     parser.add_argument('--transformer_hidden_layers', default=2)
     parser.add_argument('--train_split', default=0.7)
@@ -110,6 +113,8 @@ def get_arguments(base_path):
     parser.add_argument('--sequence_length_phase2', default=20)
     parser.add_argument('--workers_phase2', type=int, default=4)
     parser.add_argument('--model_weights_path_phase1', default=None)
+    parser.add_argument('--use_cont_loss', default=False)
+    parser.add_argument('--use_mask_loss', default=False)
 
     ##phase 3
     parser.add_argument('--task_phase3', type=str, default='fine_tune')
@@ -154,7 +159,7 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     args.experiment_title = experiment_folder.name
     
     
-    args.local_rank = os.environ["LOCAL_RANK"]
+    # args.local_rank = os.environ["LOCAL_RANK"]
     fine_tune_task = args.fine_tune_task
     print(f'saving the results at {args.experiment_folder}')
     args_logger(args)

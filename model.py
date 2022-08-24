@@ -5,6 +5,7 @@ from transformers import BertConfig,BertPreTrainedModel, BertModel
 from datetime import datetime
 import torch.nn as nn
 from nvidia_blocks import *
+import random
 
 class BaseModel(nn.Module, ABC):
     def __init__(self):
@@ -275,6 +276,9 @@ class Transformer_Block(BertPreTrainedModel, BaseModel):
         self.cls_embedding = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.BertConfig.hidden_size), nn.LeakyReLU())
         
     def concatenate_cls(self, x):
+        '''
+        shape of x in transformer block: torch.Size([1, 20, 2640])
+        '''
         # torch.cuda.nvtx.range_push("register_buffer")
         #self.register_buffer('cls_id', (torch.ones((x.size()[0], 1, self.BertConfig.hidden_size),device=x.get_device()) * 0.5),persistent=False)
         #cls_token = self.cls_embedding(self.cls_id)
@@ -300,7 +304,7 @@ class Transformer_Block(BertPreTrainedModel, BaseModel):
                             output_attentions=None,
                             output_hidden_states=None,
                             return_dict=self.BertConfig.use_return_dict
-                            ) #여기서 지정해줘야 함.
+                            )
 
         sequence_output = outputs[0][:, 1:, :]
         pooled_cls = outputs[1]
@@ -341,12 +345,15 @@ class Encoder_Transformer_Decoder(BaseModel):
         # changed from NCHDW to NHWDC format for accellerating
         x = x.contiguous(memory_format=torch.channels_last_3d) 
         
-        encoded = self.encoder(x)
- 
-        encoded = self.into_bert(encoded)
-        encoded = encoded.reshape(batch_size, T, -1)
+        encoded = self.encoder(x) # torch.Size([20, 32, 10, 12, 11])
+        
+        encoded = self.into_bert(encoded) # torch.Size([20, 2640])
+        
+        encoded = encoded.reshape(batch_size, T, -1) # torch.Size([1, 20, 2640])
+        
         torch.cuda.nvtx.range_push("transformer")
         transformer_dict = self.transformer(encoded)
+        transformer_sequence = transformer_dict['sequence']
         torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_push("reshape")
         out = transformer_dict['sequence'].reshape(batch_size * T, -1)
@@ -354,8 +361,40 @@ class Encoder_Transformer_Decoder(BaseModel):
         out = self.from_bert(out)
         reconstructed_image = self.decoder(out)
         reconstructed_image = reconstructed_image.reshape(batch_size, T, self.outChannels, W, H, D).permute(0, 2, 3, 4, 5, 1)
-        return {'reconstructed_fmri_sequence': reconstructed_image}
-
+        
+        # for masked loss
+        ## step 1 masking
+        encoded_copy = encoded # copy
+        seq_len = encoded_copy.shape[1] # 20
+        ratio = 0.15
+        mask_list = []
+        
+        ### not overlapping
+        for i in range(int(seq_len * ratio)):  
+            x = random.randint(0, seq_len-1)
+            while x in mask_list:
+                x = random.randint(0, seq_len-1)
+            mask_list.append(x)
+        
+        for x in mask_list:
+            encoded_copy[:, x:x+1, :] = torch.zeros(encoded_copy.shape[0], 1, encoded_copy.shape[2])
+        
+        device = encoded.get_device()
+        mask_list = torch.tensor(mask_list).reshape(1, -1).to(device)
+        #print('mask list of model.py is:', mask_list)
+        
+        ## step 2 rehabiliation of masked input with transformer
+        transformer_dict_for_mask = self.transformer(encoded_copy)
+        transformer_sequence_for_mask = transformer_dict_for_mask['sequence'] # torch.Size([1, 20, 2640])        
+        transformer_sequence_for_mask = transformer_sequence_for_mask.reshape(batch_size, T, -1)
+        
+        return {'reconstructed_fmri_sequence': reconstructed_image,
+                'transformer_input_sequence' : encoded,
+                'mask_list' : mask_list,
+                'transformer_output_sequence_for_mask_learning' : transformer_sequence_for_mask,
+                'transformer_output_sequence': transformer_sequence}
+                
+        # Stella modified this (added transformer_sequence)
 
 
 class Encoder_Transformer_finetune(BaseModel):

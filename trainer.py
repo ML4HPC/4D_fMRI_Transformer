@@ -267,9 +267,15 @@ class Trainer():
         #print('time spent for validation:',np.mean(times)) 
         
     def forward_pass(self,input_dict):
+        '''
+        shape of input dict is : torch.Size([4, 2, 75, 93, 81, 20])
+        '''
+        #expected input[20, 1, 75, 93, 81]
         input_dict = {k:(v.to(self.gpu) if (self.cuda and torch.is_tensor(v)) else v) for k,v in input_dict.items()}
-        #print('shape of input dict is :', input_dict['fmri_sequence'].size())
-        output_dict = self.model(input_dict['fmri_sequence'])
+        print('forward pass is working before computing output dict!')
+        # shape of input_dict['fmri_sequence'] is: torch.Size([4, 2, 75, 93, 81, 20]) #이건 문제 없음 !!!
+        output_dict = self.model(input_dict['fmri_sequence']) #배치 하나 만들 때 문제가 생기는듯..?
+        print('forward pass is working after computing output dict!')
         torch.cuda.nvtx.range_push("aggregate_losses")
         loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
         torch.cuda.nvtx.range_pop()
@@ -398,6 +404,19 @@ class Trainer():
         fmri_sequence = input_dict['fmri_sequence'][:,0].unsqueeze(1)
         perceptual_loss = self.perceptual_loss_func(output_dict['reconstructed_fmri_sequence'],fmri_sequence)
         return perceptual_loss
+    
+    def compute_contrastive(self,input_dict,output_dict):
+        # fmri_sequence = input_dict['fmri_sequence'][:,0].unsqueeze(1)
+        # print('shape of fmri_sequence is:', fmri_sequence.shape) [batch, channel, width, height, depth, T] [2, 1, 75, 93, 81, 20]
+        contrastive_loss = self.contrastive_loss_func(output_dict['transformer_output_sequence'])
+        return contrastive_loss
+    
+    def compute_mask(self, input_dict, output_dict):
+        '''
+        shape of output of fmri_sequence is: torch.Size([4, 20, 2640])
+        '''
+        mask_loss = self.mask_loss_func(output_dict['transformer_input_sequence'], output_dict['mask_list'], output_dict['transformer_output_sequence_for_mask_learning'])
+        return mask_loss
 
     def compute_binary_classification(self,input_dict,output_dict):
         binary_loss = self.binary_classification_loss_func(output_dict['binary_classification'].squeeze(), input_dict[self.target].squeeze())
