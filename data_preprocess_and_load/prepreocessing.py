@@ -15,16 +15,19 @@ def read_hcp(file_path,global_norm_path,per_voxel_norm_path,hand,count,queue=Non
     img[~background] = img_temp[~background]
     img = torch.split(img, 1, 3)
     for i, TR in enumerate(img):
-        torch.save(TR.clone(),
+        #save as fp16 for saving memory and loading time
+        torch.save(TR.clone().half(),
                    os.path.join(global_norm_path, 'rfMRI_' + hand + '_TR_' + str(i) + '.pt'))
     # repeat for per voxel normalization
     img_temp = (img_orig - img_orig.mean(dim=3, keepdims=True)) / (img_orig.std(dim=3, keepdims=True))
     img = torch.empty(img_orig.shape)
+    #img[background] = img_temp[~torch.isnan(img_temp)].min() 
     img[background] = img_temp.min()
     img[~background] = img_temp[~background]
     img = torch.split(img, 1, 3) #timepoint(3)을 기준으로 1토막씩 나누어 튜플로 반환 (각각이 3차원 이미지)
     for i, TR in enumerate(img):
-        torch.save(TR.clone(),
+        #save as fp16 for saving memory and loading time
+        torch.save(TR.clone().half(),
                    os.path.join(per_voxel_norm_path, 'rfMRI_' + hand + '_TR_' + str(i) + '.pt'))
     print('finished another subject. count is now {}'.format(count))
 
