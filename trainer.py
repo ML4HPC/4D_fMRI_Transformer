@@ -25,7 +25,7 @@ from torch.cuda.amp import GradScaler
 # ASP
 #from apex.contrib.sparsity import ASP
 
-from apex.optimizers import FusedAdam
+# from apex.optimizers import FusedAdam
 
 
 class Trainer():
@@ -115,9 +115,9 @@ class Trainer():
         lr = self.lr_handler.base_lr
         params = self.model.parameters()
         weight_decay = self.kwargs.get('weight_decay')
-        self.optimizer = FusedAdam(params, lr=lr, weight_decay=weight_decay)
-        #optim = self.kwargs.get('optim')
-        #self.optimizer = getattr(torch.optim,optim)(params, lr=lr, weight_decay=weight_decay)  #torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
+        #self.optimizer = FusedAdam(params, lr=lr, weight_decay=weight_decay)
+        optim = self.kwargs.get('optim')
+        self.optimizer = getattr(torch.optim,optim)(params, lr=lr, weight_decay=weight_decay)  #torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
         
         # attach optimizer to cuda device.
         #for state in self.optimizer.state.values():
@@ -289,10 +289,10 @@ class Trainer():
         '''
         #expected input[20, 1, 75, 93, 81]
         input_dict = {k:(v.to(self.gpu) if (self.cuda and torch.is_tensor(v)) else v) for k,v in input_dict.items()}
-        print('forward pass is working before computing output dict!')
+        #print('forward pass is working before computing output dict!')
         # shape of input_dict['fmri_sequence'] is: torch.Size([4, 2, 75, 93, 81, 20]) #이건 문제 없음 !!!
         output_dict = self.model(input_dict['fmri_sequence']) #배치 하나 만들 때 문제가 생기는듯..?
-        print('forward pass is working after computing output dict!')
+        #print('forward pass is working after computing output dict!')
         torch.cuda.nvtx.range_push("aggregate_losses")
         loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
         torch.cuda.nvtx.range_pop()

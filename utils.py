@@ -10,11 +10,12 @@ import os
 import dill
 import random
 import builtins
+import time
 
 def _get_sync_file():    
         """Logic for naming sync file using slurm env variables"""
         if 'SCRATCH' in os.environ:
-            sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH'] # Perlmutter
+            sync_file_dir = '%s/pytorch-sync-files' % os.getcwd() #os.environ['SCRATCH'] # Perlmutter
         else:
             sync_file_dir = '%s/pytorch-sync-files' % '/home/be62tdqc'
             #raise Exception('there is no env variable SCRATCH. Please check sync_file dir')
@@ -31,6 +32,8 @@ def _get_sync_file():
     
     
 def init_distributed(args):   
+    
+    
     # torchrun: sbatch script에서 WORLD_SIZE를 지정해준 경우 (노드 당 gpu * 노드의 수)
     if "WORLD_SIZE" in os.environ: # for torchrun
         args.world_size = int(os.environ["WORLD_SIZE"])
@@ -44,6 +47,7 @@ def init_distributed(args):
     ngpus_per_node = torch.cuda.device_count()
     
     if args.distributed:
+        start_time = time.time()
         #args.local_rank = int(os.environ['LOCAL_RANK']) #stella added this line
         if args.local_rank != -1: # for torch.distributed.launch
             args.rank = args.local_rank
@@ -57,9 +61,20 @@ def init_distributed(args):
         
         #print('args.rank:',args.rank)
         #print('args.gpu:',args.gpu)    
-        sync_file = _get_sync_file()
+        if args.init_method == 'file':
+            sync_file = _get_sync_file()
+            print('initializing DDP with sync file')
+        elif args.init_method == 'env':
+            sync_file = "env://"
+            #os.environ['MASTER_PORT'] = '10025'
+            #os.environ['MASTER_ADDR'] = '127.0.0.1'# os.environ['SLURM_JOB_NODELIST']
+            #print(os.environ['MASTER_PORT'])
+            #print(os.environ['MASTER_ADDR'])
+            print('initializing DDP with env variables')
         dist.init_process_group(backend=args.dist_backend, init_method=sync_file,
                             world_size=args.world_size, rank=args.rank)
+        dist_init_time = time.time() - start_time
+        print(f'seconds taken for DDP initialization: {dist_init_time}')
     else:
         args.rank = 0
         args.gpu = 0
