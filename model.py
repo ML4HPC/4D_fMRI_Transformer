@@ -27,7 +27,10 @@ class BaseModel(nn.Module, ABC):
             module.output_shape = tuple(output[0].shape[-3:])
         hook1 = encoder.down_block1.register_forward_hook(get_shape)
         hook2 = encoder.down_block3.register_forward_hook(get_shape)
-        input_shape = (1,2,) + dim  #batch,norms,H,W,D,time
+        
+        
+        #input_shape = (1,2,) + dim 
+        input_shape = (1,) + dim  #batch,norms,H,W,D,time
         x = torch.ones((input_shape))
         with torch.no_grad():
             encoder(x)
@@ -56,7 +59,10 @@ class BaseModel(nn.Module, ABC):
         #                           (e.g., 512 or 1024 or 2048).
 
         self.label_num = 1
-        self.inChannels = 2
+        if kwargs.get('voxel_norm_dir'):
+            self.inChannels = 2
+        else:
+            self.inChannels = 1
         self.outChannels = 1
         self.model_depth = 4
         self.intermediate_vec = intermediate_vec

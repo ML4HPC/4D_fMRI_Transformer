@@ -32,6 +32,10 @@ def get_arguments(base_path):
     parser.add_argument('--image_path', default='./MNI_to_TRs') #perlmutetr: MNI_to_TRs, neuron: samples # /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs for ABCD
     parser.add_argument('--base_path', default=base_path)
     parser.add_argument('--step', default='1', choices=['1','2','3'], help='which step you want to run')
+    
+    parser.add_argument('--voxel_norm_dir', default='per_voxel_normalize', type=str, choices=['per_voxel_normalize','per_voxel_normalize_no_nan']) 
+    
+    
     parser.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD_label','ADHD_label','nihtbx_totalcomp_uncorrected','nihtbx_fluidcomp_uncorrected'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD_label:classification, ADHD_label:classification, nihtbx_***:regression}')
     parser.add_argument('--fine_tune_task',
                         default='binary_classification',

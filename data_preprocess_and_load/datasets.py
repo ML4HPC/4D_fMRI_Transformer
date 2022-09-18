@@ -12,10 +12,12 @@ class BaseDataset(Dataset):
         super().__init__()
     def register_args(self,**kwargs):
         #todo:decide if keep immedieate load or not
-        self.device = None#torch.device('cuda') if kwargs.get('cuda') else torch.device('cpu')
+        self.device = None #torch.device('cuda:{}'.format(kwargs.get('gpu')) if kwargs.get('cuda') else torch.device('cpu')) 
         self.index_l = []
         self.norm = 'global_normalize'
-        self.complementary = None #'per_voxel_normalize'
+        if kwargs.get('voxel_norm_dir'):
+            self.complementary = kwargs.get('voxel_norm_dir')
+            
         self.random_TR = kwargs.get('random_TR')
         self.target = kwargs.get('target')
         self.fine_tune_task = kwargs.get('fine_tune_task')
@@ -30,6 +32,10 @@ class BaseDataset(Dataset):
 
     def get_input_shape(self):
         shape = torch.load(os.path.join(self.index_l[0][2],self.index_l[0][3] + '.pt')).squeeze().shape
+        if self.complementary:
+            shape = (2,) + shape
+        else:
+            shape = (1,) + shape
         return shape
 
     def set_augmentations(self,**kwargs):
@@ -196,4 +202,8 @@ class DummyDataset(BaseDataset):
             
     def get_input_shape(self):
         shape = (74, 95, 80)
+        if self.complementary:
+            shape = (2, 74, 95, 80)
+        else:
+            shape = (1, 74, 95, 80)
         return shape
