@@ -33,7 +33,7 @@ def get_arguments(base_path):
     parser.add_argument('--base_path', default=base_path)
     parser.add_argument('--step', default='1', choices=['1','2','3'], help='which step you want to run')
     
-    parser.add_argument('--voxel_norm_dir', default='per_voxel_normalize', type=str, choices=['per_voxel_normalize','per_voxel_normalize_no_nan']) 
+    parser.add_argument('--voxel_norm_dir', default='per_voxel_normalize', type=str, choices=['per_voxel_normalize','per_voxel_normalize_no_nan', 'global_norm_only'])
     
     
     parser.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD_label','ADHD_label','nihtbx_totalcomp_uncorrected','nihtbx_fluidcomp_uncorrected'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD_label:classification, ADHD_label:classification, nihtbx_***:regression}')
@@ -43,8 +43,6 @@ def get_arguments(base_path):
                         help='fine tune model objective. choose binary_classification in case of a binary classification task')
     parser.add_argument('--seed', type=int, default=55555555)
     parser.add_argument('--num_val_samples', type=int, default=1000) #10000이 default. 변화 없음.
-    parser.add_argument("--resume", action='store_true', help = 'if you add this option in the command line like --resume, args.resume would change to be True')
-    parser.set_defaults(resume=False)
     
     parser.add_argument('--cuda', default=True)
     parser.add_argument('--log_dir', type=str, default=os.path.join(base_path, 'runs')) #로그는 runs에 저장되는데..?
@@ -72,8 +70,7 @@ def get_arguments(base_path):
                         help='local rank for distributed training')
     parser.add_argument('--dist_backend', default='nccl', type=str, 
                         help='distributed backend')
-    parser.add_argument('--init_method', default='file', type=str, choices=['file','env'],
-                        help='DDP init method')
+    parser.add_argument('--init_method', default='env', type=str, choices=['file','env'], help='DDP init method')
     
 
     # AMP configs:
@@ -145,6 +142,8 @@ def get_arguments(base_path):
     parser.add_argument('--model_weights_path_phase3', default=None)
     
     args = parser.parse_args()
+    if args.voxel_norm_dir == 'global_norm_only':
+        args.voxel_norm_dir = None
     return args
 
 def setup_folders(base_path): 
