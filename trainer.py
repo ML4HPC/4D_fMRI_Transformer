@@ -25,7 +25,7 @@ from torch.cuda.amp import GradScaler
 # ASP
 #from apex.contrib.sparsity import ASP
 
-# from apex.optimizers import FusedAdam
+#from apex.optimizers import FusedAdam
 
 
 class Trainer():
@@ -36,29 +36,30 @@ class Trainer():
     def __init__(self,sets,**kwargs):
         
         self.register_args(**kwargs)
-        self.lr_handler = LrHandler(**kwargs)
-        
-        self.train_loader, self.val_loader, _ = DataHandler(**kwargs).create_dataloaders()
-        self.create_model()
-        
-        # load weights from the previous step
-        self.load_model_from_previous_phase(load_cls_embedding=False)
-        
-        self.create_optimizer()
-        self.lr_handler.set_schedule(self.optimizer)
-        self.scaler = GradScaler() 
         
         self.eval_iter = 0
         self.batch_index = None
         self.best_loss = 100000
         self.best_accuracy = 0
-        self.st_epoch = 0
+        self.st_epoch = 1
         
-        # Load weights from the recent pth (args.resume = True)
-        if self.resume == True:
-            self.checkpoint_load()
+        self.lr_handler = LrHandler(**kwargs)
+        self.train_loader, self.val_loader, _ = DataHandler(**kwargs).create_dataloaders()
+        
+        
+        self.create_model() # model on cpu
+        self.load_model_checkpoint()
+        self.set_model_device() # set DDP or DP after loading checkpoint at CPUs
+        
+        self.create_optimizer()
+        self.lr_handler.set_schedule(self.optimizer)
+        self.scaler = GradScaler() 
+        
+        self.load_optim_checkpoint()
         
         #ASP.prune_trained_model(self.model, self.optimizer)
+        
+        #torch.cuda.empty_cache()
 
         self.writer = Writer(sets,**kwargs) #여기서 이미 writer class를 불러옴.
         self.sets = sets
@@ -69,24 +70,6 @@ class Trainer():
             if loss_dict['is_active']:
                 print('using {} loss'.format(name))
                 setattr(self, name + '_loss_func', loss_dict['criterion'])
-    
-    def checkpoint_load(self):
-        pths = self.find_pth(self.experiment_folder)
-        if len(pths) == 0:
-            pass
-        else:
-            recent_pth = pths[0][0] # 가장 최근에 생성된 pth
-            print(f'loading checkpoint from {os.path.join(self.experiment_folder,recent_pth)}')
-            state_dict = torch.load(os.path.join(self.experiment_folder,recent_pth)) 
-            self.model.module.load_partial_state_dict(state_dict['model_state_dict'],load_cls_embedding=False)
-            self.model.module.loaded_model_weights_path = os.path.join(self.experiment_folder,recent_pth)
-            self.optimizer.load_state_dict(state_dict['optimizer_state_dict'])
-            self.lr_handler.schedule.load_state_dict(state_dict['schedule_state_dict'])
-            self.optimizer.param_groups[0]['lr'] = state_dict['lr']
-            self.scaler.load_state_dict(state_dict['amp_state'])
-            self.st_epoch = int(state_dict['epoch'] + 1)
-            self.best_loss = state_dict['loss_value']
-            print('Training start from epoch {} and learning rate {}.'.format(self.st_epoch, self.optimizer.param_groups[0]['lr']))
     
     def find_pth(self, files_Path):
         file_name_and_time_lst = []
@@ -99,17 +82,57 @@ class Trainer():
 
         return sorted_file_lst
     
-    def load_model_from_previous_phase(self,load_cls_embedding):
-        if self.loaded_model_weights_path is not None: #after autoencoder
-            state_dict = torch.load(self.loaded_model_weights_path)
-            self.lr_handler.set_lr(state_dict['lr'])
-            self.model.module.load_partial_state_dict(state_dict['model_state_dict'],load_cls_embedding=False)
-            self.model.module.loaded_model_weights_path = self.loaded_model_weights_path
+    def load_model_checkpoint(self):
+        pths = self.find_pth(self.experiment_folder)
+        if len(pths) > 0 : # if there are any checkpoints
+            self.recent_pth = pths[0][0] # the most recent checkpoints
+            print(f'loading checkpoint from {os.path.join(self.experiment_folder,self.recent_pth)}')
+            self.state_dict = torch.load(os.path.join(self.experiment_folder,self.recent_pth),map_location='cpu') #, map_location=self.device
+            self.model.load_partial_state_dict(self.state_dict['model_state_dict'],load_cls_embedding=False)
+            self.model.loaded_model_weights_path = os.path.join(self.experiment_folder,self.recent_pth)
+
+        elif self.loaded_model_weights_path: # if there are weights from previous phase
+            self.recent_pth = None
+            self.state_dict = torch.load(self.loaded_model_weights_path,map_location='cpu') #, map_location=self.device
+            self.model.load_partial_state_dict(self.state_dict['model_state_dict'],load_cls_embedding=False)
+            self.model.loaded_model_weights_path = self.loaded_model_weights_path
+            
+        else:
+            self.recent_pth = None
+            self.state_dict = None
+            print('There are no checkpoints or weights from previous steps')
+            
+    def load_optim_checkpoint(self):
+        if self.recent_pth and self.state_dict: # if there are any checkpoints
+            self.optimizer.load_state_dict(self.state_dict['optimizer_state_dict'])
+            self.lr_handler.schedule.load_state_dict(self.state_dict['schedule_state_dict'])
+            self.optimizer.param_groups[0]['lr'] = self.state_dict['lr']
+            self.scaler.load_state_dict(self.state_dict['amp_state'])
+            self.st_epoch = int(self.state_dict['epoch']) + 1
+            self.best_loss = self.state_dict['loss_value']
+            print('Training start from epoch {} and learning rate {}.'.format(self.st_epoch, self.optimizer.param_groups[0]['lr']))
+            
+        elif self.state_dict:  # if there are weights from previous phase
             text = 'loaded model weights:\nmodel location - {}\nlast learning rate - {}\nvalidation loss - {}\n'.format(
-                self.loaded_model_weights_path, state_dict['lr'],state_dict['loss_value'])
-            if 'accuracy' in state_dict:
-                text += 'validation accuracy - {}'.format(state_dict['accuracy'])
-            print(text)    
+                self.loaded_model_weights_path, self.state_dict['lr'],self.state_dict['loss_value'])
+            if 'accuracy' in self.state_dict:
+                text += 'validation accuracy - {}'.format(self.state_dict['accuracy'])
+            print(text)
+        else:
+            pass
+            
+    
+    # def load_model_from_previous_phase(self,load_cls_embedding):
+    #     if self.loaded_model_weights_path: #after autoencoder
+    #         state_dict = torch.load(self.loaded_model_weights_path,map_location='cpu') #, map_location=self.device
+    #         self.lr_handler.set_lr(state_dict['lr'])
+    #         self.model.module.load_partial_state_dict(state_dict['model_state_dict'],load_cls_embedding=False)
+    #         self.model.module.loaded_model_weights_path = self.loaded_model_weights_path
+    #         text = 'loaded model weights:\nmodel location - {}\nlast learning rate - {}\nvalidation loss - {}\n'.format(
+    #             self.loaded_model_weights_path, state_dict['lr'],state_dict['loss_value'])
+    #         if 'accuracy' in state_dict:
+    #             text += 'validation accuracy - {}'.format(state_dict['accuracy'])
+    #         print(text)    
             
     def create_optimizer(self):
         lr = self.lr_handler.base_lr
@@ -120,10 +143,10 @@ class Trainer():
         self.optimizer = getattr(torch.optim,optim)(params, lr=lr, weight_decay=weight_decay)  #torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
         
         # attach optimizer to cuda device.
-        #for state in self.optimizer.state.values():
-        #    for k, v in state.items():
-        #        if isinstance(v, torch.Tensor):
-        #            state[k] = v.cuda(self.gpu)
+        # for state in self.optimizer.state.values():
+        #     for k, v in state.items():
+        #         if isinstance(v, torch.Tensor):
+        #             state[k] = v.cuda(self.gpu)
 
     def create_model(self):
         dim = self.train_loader.dataset.dataset.get_input_shape()
@@ -133,7 +156,8 @@ class Trainer():
             self.model = AutoEncoder(dim,**self.kwargs)
         elif self.task.lower() == 'transformer_reconstruction':
             self.model = Encoder_Transformer_Decoder(dim,**self.kwargs)
-            
+        
+    def set_model_device(self):
         if self.distributed:
             # For multiprocessing distributed, DistributedDataParallel constructor
             # should always set the single device scope, otherwise,
@@ -160,19 +184,18 @@ class Trainer():
             self.device = torch.device("cuda" if self.cuda else "cpu")
             self.model = DataParallel(self.model).to(self.device)        
             
-        torch.backends.cudnn.benchmark = True   
         
 
 
     def training(self):
         if self.profiling == True:
             self.nEpochs = 1
-        for epoch in range(self.st_epoch,self.nEpochs): 
+        for epoch in range(self.st_epoch,self.nEpochs + 1): 
             start = time.time()
             self.train_epoch(epoch)
             if (not self.distributed) or self.rank == 0 :
                 self.eval_epoch('val')
-                print('______epoch summary {}/{}_____\n'.format(epoch+1,self.nEpochs)) 
+                print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs)) 
                 self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
                 self.writer.accuracy_summary(mid_epoch=False)
                 self.writer.save_history_to_csv()
@@ -262,8 +285,8 @@ class Trainer():
                 
                     self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
                     self.train()
-                else:
-                    dist.barrier()
+                # else:
+                #     dist.barrier()
                 
     def eval_epoch(self,set):
         loader = self.val_loader if set == 'val' else self.test_loader 
