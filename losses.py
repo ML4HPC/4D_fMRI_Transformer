@@ -254,7 +254,9 @@ class Percept_Loss(nn.Module):
         super(Percept_Loss, self).__init__()
         print('notice: changed layers in perceptual back to old version')
         task = kwargs.get('task')
-        if task == 'autoencoder_reconstruction':
+        if task == 'test':
+            pass
+        elif task == 'autoencoder_reconstruction':
             self.memory_constraint = 0.25
         elif task == 'transformer_reconstruction':
             self.memory_constraint = 0.1
@@ -270,6 +272,7 @@ class Percept_Loss(nn.Module):
                 if kwargs.get('cuda'):
                     self.densenet3d.cuda(kwargs.get('gpu'))
                 self.loss = nn.MSELoss()
+
 
     def forward(self, input, target):
         assert input.shape == target.shape, 'input and target should have identical dimension'

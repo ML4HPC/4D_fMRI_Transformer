@@ -98,8 +98,9 @@ def weight_loader(args):
             task = 'fine_tune_{}'.format(args.fine_tune_task)
             if os.path.exists(args.model_weights_path_phase2):
                 model_weights_path = args.model_weights_path_phase2
-        elif args.step == 'test':
+        elif args.step == '4':
             task = None
+            #task = 'fine_tune_{}'.format(args.fine_tune_task)
             if os.path.exists(args.model_weights_path_phase3):
                 model_weights_path = args.model_weights_path_phase3
     except:

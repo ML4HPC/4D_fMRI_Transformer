@@ -44,7 +44,7 @@ class Trainer():
         self.st_epoch = 1
         
         self.lr_handler = LrHandler(**kwargs)
-        self.train_loader, self.val_loader, _ = DataHandler(**kwargs).create_dataloaders()
+        self.train_loader, self.val_loader, self.test_loader = DataHandler(**kwargs).create_dataloaders()
         
         
         self.create_model() # model on cpu
@@ -56,10 +56,6 @@ class Trainer():
         self.scaler = GradScaler() 
         
         self.load_optim_checkpoint()
-        
-        #ASP.prune_trained_model(self.model, self.optimizer)
-        
-        #torch.cuda.empty_cache()
 
         self.writer = Writer(sets,**kwargs) #여기서 이미 writer class를 불러옴.
         self.sets = sets
@@ -150,7 +146,9 @@ class Trainer():
 
     def create_model(self):
         dim = self.train_loader.dataset.dataset.get_input_shape()
-        if self.task.lower() == 'fine_tune':
+        print('self.task:',self.task)
+        if self.task.lower() == ('fine_tune' or 'test'):
+            print('here!!!')
             self.model = Encoder_Transformer_finetune(dim,**self.kwargs)
         elif self.task.lower() == 'autoencoder_reconstruction':
             self.model = AutoEncoder(dim,**self.kwargs)
@@ -289,7 +287,9 @@ class Trainer():
                 #     dist.barrier()
                 
     def eval_epoch(self,set):
-        loader = self.val_loader if set == 'val' else self.test_loader 
+        loader = self.val_loader if set == 'val' else self.test_loader
+        # print('set is:', set) - test로 잘 잡힘
+        print('test loader is:', loader) #- 왜 None??
         self.eval(set)
         with torch.no_grad():
             #times = [] 
@@ -400,7 +400,6 @@ class Trainer():
         if self.lr_handler.schedule is not None:
             ckpt_dict['schedule_state_dict'] = self.lr_handler.schedule.state_dict()
             ckpt_dict['lr'] = self.optimizer.param_groups[0]['lr']
-        # 수상한 줄... 은 별 거 없고 이 모델의 path를 받아와서 저장하는 것. 그러면 transformer는 ae의 path를 가지고 있겠군 
         if hasattr(self,'loaded_model_weights_path'):
             ckpt_dict['loaded_model_weights_path'] = self.loaded_model_weights_path
         
@@ -411,16 +410,18 @@ class Trainer():
         
         core_name = title
         # best loss나 best accuracy를 가진 모델만 저장하는 코드
-        if self.best_loss > loss:
-            self.best_loss = loss
-            name = "{}_BEST_val_loss.pth".format(core_name)
-            torch.save(ckpt_dict, os.path.join(directory, name))
-            print('updating best saved model...')
+        # classification
         if accuracy is not None and self.best_accuracy < accuracy:
             self.best_accuracy = accuracy
             name = "{}_BEST_val_accuracy.pth".format(core_name)
             torch.save(ckpt_dict, os.path.join(directory, name))
-            print('updating best saved model...')
+            print(f'updating best saved model with accuracy:{accuracy}')
+        # regression
+        elif self.best_loss > loss:
+            self.best_loss = loss
+            name = "{}_BEST_val_loss.pth".format(core_name)
+            torch.save(ckpt_dict, os.path.join(directory, name))
+            print(f'updating best saved model with loss: {loss}')
 
 
     def compute_reconstruction(self,input_dict,output_dict):

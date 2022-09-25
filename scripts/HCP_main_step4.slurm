@@ -32,5 +32,7 @@ conda activate 3DCNN
 env | grep SLURM
 
 # Phase4 : test
-# have some problems here
-srun python main.py --step test --model_weights_path_phase3 ./weights/S1200_fine_tune_binary_classification.pth
+# have some problems here - Stella will solve it! don't worry
+#srun python main.py --step test #--model_weights_path_phase3 ./weights/S1200_fine_tune_binary_classification.pth
+
+python main.py --step 4 --exp_name test --image_path /dvs_ro/cfs/cdirs/m3898/4D_fMRI_Transformer/MNI_to_TRs --init_method env --voxel_norm_dir per_voxel_normalize_no_nan --model_weights_path_phase3 ./experiments/S1200_fine_tune_binary_classification_sex_voxel_normalize_min/S1200_fine_tune_binary_classification_sex_voxel_normalize_min_epoch_8_batch_index_349_BEST_val_loss.pth

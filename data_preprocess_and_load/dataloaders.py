@@ -16,6 +16,8 @@ import os
 
 class DataHandler():
     def __init__(self,test=False,**kwargs):
+        if kwargs.get('step') == '4':
+            test = True
         self.test = test
         self.kwargs = kwargs
         self.dataset_name = kwargs.get('dataset_name')
@@ -87,7 +89,7 @@ class DataHandler():
         
         val_generator = DataLoader(val_loader, **self.get_params(eval=True,**self.kwargs),
                                   sampler=valid_sampler)
-        
+        print('self.test is:', self.test)
         test_generator = DataLoader(test_loader, **self.get_params(eval=True,**self.kwargs),
                                    sampler=test_sampler) if self.test else None
         

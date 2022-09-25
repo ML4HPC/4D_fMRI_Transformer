@@ -31,7 +31,7 @@ def get_arguments(base_path):
     parser.add_argument('--dataset_name', type=str, choices=['S1200','ABCD','Dummy'],default="S1200") 
     parser.add_argument('--image_path', default='./MNI_to_TRs') #perlmutetr: MNI_to_TRs, neuron: samples # /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs for ABCD
     parser.add_argument('--base_path', default=base_path)
-    parser.add_argument('--step', default='1', choices=['1','2','3'], help='which step you want to run')
+    parser.add_argument('--step', default='1', choices=['1','2','3','4'], help='which step you want to run')
     
     parser.add_argument('--voxel_norm_dir', default='per_voxel_normalize', type=str, choices=['per_voxel_normalize','per_voxel_normalize_no_nan', 'global_norm_only'])
     
@@ -139,11 +139,25 @@ def get_arguments(base_path):
     parser.add_argument('--model_weights_path_phase2', default=None)
     
     ##phase 4 (test)
+    parser.add_argument('--task_phase4', type=str, default='test')
     parser.add_argument('--model_weights_path_phase3', default=None)
+    parser.add_argument('--batch_size_phase4', type=int, default=4)
+    parser.add_argument('--nEpochs_phase4', type=int, default=20)
+    parser.add_argument('--augment_prob_phase4', default=0)
+    parser.add_argument('--optim_phase4', default='Adam')
+    parser.add_argument('--weight_decay_phase4', default=1e-2)
+    parser.add_argument('--lr_policy_phase4', default='step', choices=['step','SGDR'], help='learning rate policy: step|SGDR')
+    parser.add_argument('--lr_init_phase4', type=float, default=1e-4)
+    parser.add_argument('--lr_gamma_phase4', type=float, default=0.9)
+    parser.add_argument('--lr_step_phase4', type=int, default=1500)
+    parser.add_argument('--lr_warmup_phase4', type=int, default=100)
+    parser.add_argument('--sequence_length_phase4', type=int,default=20)
+    parser.add_argument('--workers_phase4', type=int, default=4)
     
     args = parser.parse_args()
     if args.voxel_norm_dir == 'global_norm_only':
         args.voxel_norm_dir = None
+        
     return args
 
 def setup_folders(base_path): 
@@ -182,12 +196,35 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     return model_weights_path
 
 
+def test(args,phase_num,model_weights_path):
+    experiment_folder = '{}_{}_{}'.format(args.dataset_name, 'test_{}'.format(args.fine_tune_task), args.exp_name) #, datestamp())
+    experiment_folder = Path(os.path.join(args.base_path,'tests', experiment_folder))
+    os.makedirs(experiment_folder,exist_ok=True)
+    setattr(args,'loaded_model_weights_path_phase' + phase_num, model_weights_path) # 이름이 이게 맞나?
+    
+    args.experiment_folder = experiment_folder
+    args.experiment_title = experiment_folder.name
+    args_logger(args)
+    args = sort_args(args.step, vars(args))
+    S = ['test']
+    #trainer = Trainer(experiment_folder, '3', args, ['test'], model_weights_path)
+    trainer = Trainer(sets=S,**args)
+    trainer.testing()
+    
+    if not args.fine_tune_task == 'regression':
+        critical_metric = 'accuracy'
+    else:
+        critical_metric = 'loss'
+    model_weights_path = os.path.join(trainer.writer.experiment_folder,trainer.writer.experiment_title + '_BEST_test_{}.pth'.format(critical_metric))
+
+''' 기존 함수
 def test(args,model_weights_path):
     experiment_folder = '{}_{}_{}'.format(args.dataset_name, 'test_{}'.format(args.fine_tune_task), datestamp())
     experiment_folder = os.path.join(args.base_path,'tests', experiment_folder)
     os.makedirs(experiment_folder,exist_ok=True)
     trainer = Trainer(experiment_folder, '3', args, ['test'], model_weights_path)
     trainer.testing()
+'''
 
 if __name__ == '__main__':
     base_path = os.getcwd() 
@@ -200,9 +237,10 @@ if __name__ == '__main__':
     # load weights that you specified at the Argument
     model_weights_path, step, task = weight_loader(args)
 
-    if step == 'test' :
+    if step == '4' :
         print(f'starting testing')
-        test(args, model_weights_path) # have some problems here
+        phase_num = '4'
+        test(args, phase_num, model_weights_path) # have some problems here - I checked it! -Stella 
     else:
         print(f'starting phase{step}: {task}')
         run_phase(args,model_weights_path,step,task)
