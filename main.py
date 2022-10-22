@@ -70,7 +70,7 @@ def get_arguments(base_path):
                         help='local rank for distributed training')
     parser.add_argument('--dist_backend', default='nccl', type=str, 
                         help='distributed backend')
-    parser.add_argument('--init_method', default='env', type=str, choices=['file','env'], help='DDP init method')
+    parser.add_argument('--init_method', default='file', type=str, choices=['file','env'], help='DDP init method')
     
 
     # AMP configs:

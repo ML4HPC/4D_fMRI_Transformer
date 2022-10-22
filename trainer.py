@@ -12,6 +12,8 @@ import time
 import pathlib
 import os
 
+#from rfMRI_preprocessing.data_module2 import fMRIDataModule2
+
 #DDP
 from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
@@ -45,6 +47,22 @@ class Trainer():
         
         self.lr_handler = LrHandler(**kwargs)
         self.train_loader, self.val_loader, self.test_loader = DataHandler(**kwargs).create_dataloaders()
+        # dm = fMRIDataModule2(
+        #     data_seed=1234,
+        #     dataset_name='S1200',
+        #     image_path='/mnt/ssd/processed/S1200/',
+        #     batch_size=4,
+        #     sequence_length=20,
+        #     num_workers=4,
+        #     to_float=True,
+        #     with_voxel_norm=True,
+        #     strategy=None
+        # )
+        # dm.setup()
+        # dm.prepare_data()
+        # self.train_loader = dm.train_dataloader()
+        # self.val_loader = dm.val_dataloader()
+        # self.test_loader = dm.test_dataloader()
         
         
         self.create_model() # model on cpu

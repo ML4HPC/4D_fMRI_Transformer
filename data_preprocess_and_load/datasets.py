@@ -17,6 +17,8 @@ class BaseDataset(Dataset):
         self.norm = 'global_normalize'
         if kwargs.get('voxel_norm_dir'):
             self.complementary = kwargs.get('voxel_norm_dir')
+        else:
+            self.complementary = None
             
         self.random_TR = kwargs.get('random_TR')
         self.target = kwargs.get('target')
@@ -130,7 +132,7 @@ class ABCD_3D(BaseDataset):
         non_na = self.meta_data[['subjectkey',self.target]].dropna(axis=0)
         
         #voxel normalize가 덜 된 subject 제거
-        mask=non_na['subjectkey'].isin(['NDARINVRTD32ZG1','NDARINVAAV56RVU','NDARINVRTDH8349','NDARINVAAPJB31X','NDARINVAAX7P792','NDARINVRTDZTY9C','NDARINVAAR0XGYL']+['NDARINV425E5RC6','NDARINVF9ZWE4J9','NDARINVTJJXH8K7','NDARINV7PB55MX2'])
+        mask=non_na['subjectkey'].isin(['NDARINVRTD32ZG1','NDARINVAAV56RVU','NDARINVRTDH8349','NDARINVAAPJB31X','NDARINVAAX7P792','NDARINVRTDZTY9C','NDARINVAAR0XGYL']+['NDARINV425E5RC6','NDARINVF9ZWE4J9','NDARINVTJJXH8K7','NDARINV7PB55MX2']+['NDARINVBHCAN3DK']) # NDARINVBHCAN3DK : no voxel norm folders
         non_na = non_na[~mask]
         subjects = list(non_na['subjectkey']) 
         

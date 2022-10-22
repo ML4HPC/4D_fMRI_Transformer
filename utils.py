@@ -15,7 +15,7 @@ import time
 def _get_sync_file():    
         """Logic for naming sync file using slurm env variables"""
         if 'SCRATCH' in os.environ:
-            sync_file_dir = '%s/pytorch-sync-files' % os.getcwd() #os.environ['SCRATCH'] # Perlmutter
+            sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH'] # Perlmutter
         else:
             sync_file_dir = '%s/pytorch-sync-files' % '/home/be62tdqc'
             #raise Exception('there is no env variable SCRATCH. Please check sync_file dir')

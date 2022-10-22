@@ -40,4 +40,4 @@ export SCRATCH=$SCRATCH
 #torchrun will determine WORLD_SIZE #${SLURM_NNODES} # --rdzv_id ${SLURM_JOB_ID} 
 #srun torchrun --nnodes=${SLURM_NNODES} --nproc_per_node=${SLURM_GPUS_PER_NODE} --rdzv_id ${SLURM_JOB_ID}  main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --batch_size_phase1 64 --lr_init_phase1 1e-4 --lr_policy_phase1 SGDR --lr_warmup_phase1 500 --lr_gamma_phase1 0.5 --lr_step_phase1 500
 
-srun main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --batch_size_phase1 64 --lr_init_phase1 1e-4 --lr_policy_phase1 SGDR --lr_warmup_phase1 500 --lr_gamma_phase1 0.5 --lr_step_phase1 500
+srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --batch_size_phase1 64 --lr_init_phase1 1e-4 --lr_policy_phase1 SGDR --lr_warmup_phase1 500 --lr_gamma_phase1 0.5 --lr_step_phase1 500

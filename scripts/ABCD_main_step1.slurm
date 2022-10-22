@@ -1,16 +1,15 @@
 #!/bin/bash
 #SBATCH -A m3898_g
-#SBATCH -J TFF_ABCD_step_one
+#SBATCH -J A_s1
 #SBATCH -C gpu
 #SBATCH -q regular
 #SBATCH -t 6:00:00
-#SBATCH -N 8
-#SBATCH -c 10
+#SBATCH -N 4
+#SBATCH -c 32
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --chdir=../
 #SBATCH --exclusive
-#SBATCH --account m3898_g
 #SBATCH --output=slurm_logs/R-%x-%j.out
 #SBATCH --mail-user=kjb961013@snu.ac.kr
 set +x
@@ -30,4 +29,14 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --step 1 --batch_size_phase1 64 --lr_policy_phase2 SGDR  --lr_init_phase1 1e-4 --lr_warmup_phase1 500 --lr_step_phase1 1000 --exp_name SGDR
+#srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs --dataset_name ABCD --step 1 --batch_size_phase1 64 --lr_policy_phase1 SGDR  --lr_init_phase1 1e-4 --lr_warmup_phase1 500 --lr_step_phase1 1000 --exp_name no_voxel_norm
+
+export MASTER_ADDR=$(hostname)
+
+# no intensity loss
+srun bash -c "
+source export_DDP_vars.sh  
+python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF_20_timepoint_removed/MNI_to_TRs --dataset_name ABCD --step 1 --batch_size_phase1 64 --exp_name v1 --workers_phase1 4"
+
+
+#srun python main.py --image_path /pscratch/sd/s/stella/ABCD_TFF_20_timepoint_removed --dataset_name ABCD --step 1 --batch_size_phase1 64 --lr_policy_phase2 SGDR  --lr_init_phase1 1e-4 --lr_warmup_phase1 500 --lr_step_phase1 1000 --exp_name no_intensity_loss

@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -A m3898_g
-#SBATCH -J TFF_HCP_step_three
+#SBATCH -J H_s2_mask_per_loss
 #SBATCH -C gpu
 #SBATCH -q regular
 #SBATCH -t 6:00:00
-#SBATCH -N 4
+#SBATCH -N 1
 #SBATCH -c 32
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
@@ -12,7 +12,7 @@
 #SBATCH --exclusive
 #SBATCH --account m3898_g
 #SBATCH --output=slurm_logs/R-%x-%j.out
-#SBATCH --mail-user=kjb961013@snu.ac.kr
+#SBATCH --mail-user=stellasybae@snu.ac.kr
 set +x
 
 # -c, --cpus-per-task
@@ -30,5 +30,4 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --step 3 --batch_size_phase3 8 --target age --fine_tune_task regression
-#--model_weights_path_phase2 ./weights/S1200_tranformer_reconstruction.pth
+srun python main.py --step 2 --batch_size_phase2 4  --exp_name mask_per_loss --which_perceptual densenet3d --use_mask_loss True #--model_weights_path_phase1 /global/cfs/cdirs/m3898/4D_fMRI_Transformer/experiments/S1200_autoencoder_reconstruction_sex_baseline/S1200_autoencoder_reconstruction_sex_baseline_epoch_7_batch_index_879_BEST_val_loss.pth

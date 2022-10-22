@@ -5,7 +5,7 @@
 #SBATCH -q regular
 #SBATCH -t 6:00:00
 #SBATCH -N 4
-#SBATCH -c 10
+#SBATCH -c 32
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --chdir=../

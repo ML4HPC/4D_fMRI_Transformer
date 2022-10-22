@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A m3898_g
-#SBATCH -J TFF_HCP_step_three
+#SBATCH -J HCP_s3-yes-nan-multinode-env-4node
 #SBATCH -C gpu
 #SBATCH -q regular
 #SBATCH -t 6:00:00
@@ -30,5 +30,20 @@ conda activate 3DCNN
 
 env | grep SLURM
 
-srun python main.py --step 3 --batch_size_phase3 8 --target age --fine_tune_task regression
-#--model_weights_path_phase2 ./weights/S1200_tranformer_reconstruction.pth
+export MASTER_ADDR=$(hostname)
+
+### get the first node name as master address - customized for vgg slurm
+### e.g. master(gnodee[2-5],gnoded1) == gnodee2
+#echo "NODELIST="${SLURM_NODELIST}
+#master_addr=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
+#export MASTER_ADDR=$master_addr
+#echo "MASTER_ADDR="$MASTER_ADDR
+
+srun bash -c "
+source export_DDP_vars.sh  
+python main.py --step 3 --batch_size_phase3 8 --exp_name voxel_normalize_nan_no_loading_node4 --image_path /dvs_ro/cfs/cdirs/m3898/4D_fMRI_Transformer/MNI_to_TRs --workers_phase3 4 --init_method env --voxel_norm_dir per_voxel_normalize_no_nan
+"
+
+
+#Sliding Window
+#srun python main.py --step 3 --batch_size_phase3 4 --random_TR --exp_name random_TR
