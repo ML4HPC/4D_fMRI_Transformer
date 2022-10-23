@@ -24,6 +24,7 @@ import builtins
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 
+from rfMRI_preprocessing.data_module2 import fMRIDataModule2
 # ASP
 #from apex.contrib.sparsity import ASP
 
@@ -46,23 +47,23 @@ class Trainer():
         self.st_epoch = 1
         
         self.lr_handler = LrHandler(**kwargs)
-        self.train_loader, self.val_loader, self.test_loader = DataHandler(**kwargs).create_dataloaders()
-        # dm = fMRIDataModule2(
-        #     data_seed=1234,
-        #     dataset_name='S1200',
-        #     image_path='/mnt/ssd/processed/S1200/',
-        #     batch_size=4,
-        #     sequence_length=20,
-        #     num_workers=4,
-        #     to_float=True,
-        #     with_voxel_norm=True,
-        #     strategy=None
-        # )
-        # dm.setup()
-        # dm.prepare_data()
-        # self.train_loader = dm.train_dataloader()
-        # self.val_loader = dm.val_dataloader()
-        # self.test_loader = dm.test_dataloader()
+        # self.train_loader, self.val_loader, self.test_loader = DataHandler(**kwargs).create_dataloaders()
+        dm = fMRIDataModule2(
+            data_seed=1234,
+            dataset_name='S1200',
+            image_path=self.image_path,
+            batch_size=4,
+            sequence_length=20,
+            num_workers=4,
+            to_float=True,
+            with_voxel_norm=True,
+            strategy=None
+        )
+        dm.setup()
+        dm.prepare_data()
+        self.train_loader = dm.train_dataloader()
+        self.val_loader = dm.val_dataloader()
+        self.test_loader = dm.test_dataloader()
         
         
         self.create_model() # model on cpu

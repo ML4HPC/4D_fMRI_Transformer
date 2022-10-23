@@ -2,7 +2,7 @@ import os
 import pytorch_lightning as pl
 import numpy as np
 from torch.utils.data import DataLoader, Subset
-from .data_preprocess_and_load.datasets2 import S1200
+from .datasets2 import S1200
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from .parser import str2bool
 

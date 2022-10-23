@@ -17,7 +17,7 @@ def _get_sync_file():
         if 'SCRATCH' in os.environ:
             sync_file_dir = '%s/pytorch-sync-files' % os.environ['SCRATCH'] # Perlmutter
         else:
-            sync_file_dir = '%s/pytorch-sync-files' % '/home/be62tdqc'
+            sync_file_dir = '%s/pytorch-sync-files' % '/lus/grand/projects/STlearn/'
             #raise Exception('there is no env variable SCRATCH. Please check sync_file dir')
         os.makedirs(sync_file_dir, exist_ok=True)
 
