@@ -204,7 +204,7 @@ class Trainer():
                 self.eval_epoch('val')
                 print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs)) 
                 self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
-                self.writer.accuracy_summary(mid_epoch=False)
+                self.writer.accuracy_summary(mid_epoch=True)
                 self.writer.save_history_to_csv()
                 self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
             # else:

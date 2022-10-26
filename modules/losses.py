@@ -310,5 +310,4 @@ class Percept_Loss(nn.Module):
             loss = 0
             for i,j in zip(input,target):
                 loss += self.loss(i,j)
-            print('perceptual loss is:', loss)
         return loss

@@ -41,7 +41,7 @@ export MASTER_ADDR=$(hostname)
 
 srun bash -c "
 source export_DDP_vars.sh  
-python main.py --step 3 --batch_size_phase3 8 --exp_name voxel_normalize_nan_no_loading_node4 --image_path /dvs_ro/cfs/cdirs/m3898/4D_fMRI_Transformer/MNI_to_TRs --workers_phase3 4 --init_method env --voxel_norm_dir per_voxel_normalize_no_nan
+python main.py --step 3 --batch_size_phase3 8 --exp_name from_step2_bs2 --image_path /dvs_ro/cfs/cdirs/m3898/4D_fMRI_Transformer/MNI_to_TRs --workers_phase3 4 --init_method env --voxel_norm_dir per_voxel_normalize_no_nan --model_weights_path_phase2 /global/cfs/cdirs/m3898/4D_fMRI_Transformer/experiments/S1200_tranformer_reconstruction_sex_from_step1_v2_batchsize2/S1200_tranformer_reconstruction_sex_from_step1_v2_batchsize2_epoch_9_batch_index_1397_BEST_val_loss.pth
 "
 
 

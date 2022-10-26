@@ -456,4 +456,3 @@ class Encoder_Transformer_finetune(BaseModel):
         prediction = self.regression_head(CLS)
         torch.cuda.nvtx.range_pop()
         return {self.task:prediction}
-
