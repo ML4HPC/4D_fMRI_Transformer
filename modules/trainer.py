@@ -1,18 +1,19 @@
 
-from loss_writer import Writer
-from learning_rate import LrHandler
-from data_preprocess_and_load.dataloaders import DataHandler
+from .loss_writer import Writer
+from .learning_rate import LrHandler
+#from data_preprocess_and_load.dataloaders import DataHandler
+from .data_preprocess_and_load.data_module3 import fMRIDataModule
 import torch
 import warnings
 import numpy as np
 from tqdm import tqdm
-from model import Encoder_Transformer_Decoder,Encoder_Transformer_finetune,AutoEncoder
-from losses import get_intense_voxels
+from .model import Encoder_Transformer_Decoder,Encoder_Transformer_finetune,AutoEncoder
+from .losses import get_intense_voxels
 import time
 import pathlib
 import os
 
-#from rfMRI_preprocessing.data_module2 import fMRIDataModule2
+
 
 #DDP
 from torch.utils.data.distributed import DistributedSampler
@@ -24,7 +25,7 @@ import builtins
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 
-from rfMRI_preprocessing.data_module2 import fMRIDataModule2
+
 # ASP
 #from apex.contrib.sparsity import ASP
 
@@ -48,17 +49,8 @@ class Trainer():
         
         self.lr_handler = LrHandler(**kwargs)
         # self.train_loader, self.val_loader, self.test_loader = DataHandler(**kwargs).create_dataloaders()
-        dm = fMRIDataModule2(
-            data_seed=1234,
-            dataset_name='S1200',
-            image_path=self.image_path,
-            batch_size=4,
-            sequence_length=20,
-            num_workers=4,
-            to_float=True,
-            with_voxel_norm=True,
-            strategy=None
-        )
+        # torch lightening Dataloader
+        dm = fMRIDataModule(**kwargs)
         dm.setup()
         dm.prepare_data()
         self.train_loader = dm.train_dataloader()
@@ -164,10 +156,8 @@ class Trainer():
         #             state[k] = v.cuda(self.gpu)
 
     def create_model(self):
-        dim = self.train_loader.dataset.dataset.get_input_shape()
-        print('self.task:',self.task)
+        dim = next(iter(self.train_loader))["fmri_sequence"].shape[1:5] # channel, w, h, d
         if self.task.lower() == ('fine_tune' or 'test'):
-            print('here!!!')
             self.model = Encoder_Transformer_finetune(dim,**self.kwargs)
         elif self.task.lower() == 'autoencoder_reconstruction':
             self.model = AutoEncoder(dim,**self.kwargs)
@@ -479,7 +469,7 @@ class Trainer():
         return mask_loss
 
     def compute_binary_classification(self,input_dict,output_dict):
-        binary_loss = self.binary_classification_loss_func(output_dict['binary_classification'].squeeze(), input_dict[self.target].squeeze())
+        binary_loss = self.binary_classification_loss_func(output_dict['binary_classification'].squeeze(), input_dict[self.target].squeeze().float())
         #self.binary_classification_loss_func(output_dict['binary_classification'].squeeze(), input_dict['subject_binary_classification'].squeeze())
         return binary_loss
 
@@ -492,9 +482,9 @@ class Trainer():
         out = output_dict[task].detach().clone().cpu()
         score = out.squeeze() if out.shape[0] > 1 else out
         labels = input_dict[self.target].clone().cpu() # input_dict['subject_' + task].clone().cpu()
-        subjects = input_dict['subject'].clone().cpu()
+        subjects = input_dict['subject'] #.clone().cpu()
         for i, subj in enumerate(subjects):
-            subject = str(subj.item())
+            subject = str(subj) #.item())
             if subject not in self.writer.subject_accuracy:
                 self.writer.subject_accuracy[subject] = {'score': score[i].unsqueeze(0), 'mode': self.mode, 'truth': labels[i],'count': 1}
             else:

@@ -1,22 +1,24 @@
+#fixed split
 import os
 import pytorch_lightning as pl
 import numpy as np
 from torch.utils.data import DataLoader, Subset
-from .data_preprocess_and_load.datasets2 import S1200
+from .datasets2 import S1200
+from torch.utils.data.distributed import DistributedSampler
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from .parser import str2bool
 
-class fMRIDataModule2(pl.LightningDataModule):
+class fMRIDataModule(pl.LightningDataModule):
     def __init__(self, **kwargs):
         super().__init__()
         self.save_hyperparameters()
 
         # generate splits folder
-        split_dir_path = f'./data/splits/{self.hparams.dataset_name}'
+        split_dir_path = os.path.join(self.hparams.base_path,f'data/splits/{self.hparams.dataset_name}')
         os.makedirs(split_dir_path, exist_ok=True)
-        self.split_file_path = os.path.join(split_dir_path, f"seed_{self.hparams.data_seed}.txt")
+        self.split_file_path = os.path.join(split_dir_path, f"split_fixed_{self.hparams.dataset_split_num}.txt")
 
-        pl.seed_everything(seed=self.hparams.data_seed)
+        # pl.seed_everything(seed=self.hparams.data_seed)
 
     def save_split(self, sets_dict):
         with open(self.split_file_path, "w+") as f:
@@ -28,11 +30,13 @@ class fMRIDataModule2(pl.LightningDataModule):
     def get_dataset(self):
         if self.hparams.dataset_name == "S1200":
             return S1200
+#         elif self.hparams.dataset_name == "ABCD":
+#             return ABCD
         else:
             raise NotImplementedError
 
     def convert_subject_list_to_idx_list(self, train_names, val_names, test_names, subj_list):
-        subj_idx = np.array([str(x[0]) for x in subj_list])
+        subj_idx = np.array([str(x[1]) for x in subj_list])
         train_idx = np.where(np.in1d(subj_idx, train_names))[0].tolist()
         val_idx = np.where(np.in1d(subj_idx, val_names))[0].tolist()
         test_idx = np.where(np.in1d(subj_idx, test_names))[0].tolist()
@@ -78,13 +82,17 @@ class fMRIDataModule2(pl.LightningDataModule):
 
         self.subject_list = dataset_w_aug.data
         if os.path.exists(self.split_file_path):
+            print(f'loading split file : {self.split_file_path}')
             train_names, val_names, test_names = self.load_split()
             train_idx, val_idx, test_idx = self.convert_subject_list_to_idx_list(
                 train_names, val_names, test_names, self.subject_list
             )
         else:
-            train_idx, val_idx, test_idx = self.determine_split_randomly(self.subject_list)
-
+            #train_idx, val_idx, test_idx = self.determine_split_randomly(self.subject_list)
+            raise NameError('Use the split file')
+            
+            
+            
         print("length of train_idx:", len(train_idx))  # 900984
         print("length of val_idx:", len(val_idx))  # 192473 -> 1000
         print("length of test_idx:", len(test_idx))  # 194774
@@ -100,12 +108,21 @@ class fMRIDataModule2(pl.LightningDataModule):
                 "num_workers": self.hparams.num_workers,
                 "drop_last": True,
                 "pin_memory": True,
-                "persistent_workers": train and (self.hparams.strategy == 'ddp'),
-                "shuffle": train
+                #"persistent_workers": train and (self.hparams.strategy == 'ddp'),
             }
-        self.train_loader = DataLoader(self.train_dataset, **get_params(train=True))
-        self.val_loader = DataLoader(self.val_dataset, **get_params(train=False))
-        self.test_loader = DataLoader(self.test_dataset, **get_params(train=False))
+        
+        if self.hparams.distributed:
+            train_sampler = DistributedSampler(self.train_dataset , shuffle=True)
+            valid_sampler = DistributedSampler(self.val_dataset, shuffle=False)
+            test_sampler = DistributedSampler(self.test_dataset, shuffle=False)
+        else:
+            train_sampler = RandomSampler(train_loader)
+            valid_sampler = None
+            test_sampler = None
+        
+        self.train_loader = DataLoader(self.train_dataset, **get_params(train=True), sampler=train_sampler)
+        self.val_loader = DataLoader(self.val_dataset, **get_params(train=False), sampler=valid_sampler)
+        self.test_loader = DataLoader(self.test_dataset, **get_params(train=False), sampler=test_sampler)
 
     def train_dataloader(self):
         return self.train_loader
@@ -123,18 +140,24 @@ class fMRIDataModule2(pl.LightningDataModule):
     def add_data_specific_args(cls, parent_parser: ArgumentParser, **kwargs) -> ArgumentParser:
         parser = ArgumentParser(parents=[parent_parser], add_help=True, formatter_class=ArgumentDefaultsHelpFormatter)
         group = parser.add_argument_group("DataModule arguments")
-        group.add_argument("--data_seed", type=int, default=1234)
-        group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy"], default="ABCD")
+        #group.add_argument("--data_seed", type=int, default=1, help='1,2,3')
+        group.add_argument("--dataset_split_num", type=int, default=1) # dataset split, choose from 1, 2, or 3
+        group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy"], default="S1200")
+        group.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD_label','ADHD_label','nihtbx_totalcomp_uncorrected','nihtbx_fluidcomp_uncorrected'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD_label:classification, ADHD_label:classification, nihtbx_***:regression}')
+        group.add_argument('--fine_tune_task',
+                        default='binary_classification',
+                        choices=['regression','binary_classification'],
+                        help='fine tune model objective. choose binary_classification in case of a binary classification task')
         group.add_argument("--image_path", default="/pscratch/sd/s/stella/ABCD_TFF/MNI_to_TRs")
         group.add_argument("--train_split", default=0.7)
         group.add_argument("--val_split", default=0.15)
         group.add_argument("--num_subset", type=int, default=-1)
 
-        group.add_argument("--batch_size", type=int, default=4)
+        # group.add_argument("--batch_size", type=int, default=4)
         group.add_argument("--sequence_length", default=20)
         group.add_argument("--num_workers", type=int, default=8)
 
-        group.add_argument("--to_float16", type=str2bool, default=False)
+        group.add_argument("--to_float16", type=str2bool, default=True)
         group.add_argument("--with_voxel_norm", type=str2bool, default=False)
         group.add_argument("--use_augmentations", default=False, action='store_true')
 

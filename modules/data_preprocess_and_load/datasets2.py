@@ -48,6 +48,14 @@ class BaseDataset(Dataset):
     def _set_data(self, root, sequence_length):
         raise NotImplementedError("Required function")
         
+#     def get_input_shape(self):
+#         shape = torch.load(os.path.join(self.data[0][2],f'frame_{self.data[0][3]}.pt')).squeeze().shape
+#         if self.with_voxel_norm:
+#             shape = (2,) + shape
+#         else:
+#             shape = (1,) + shape
+#         return shape
+        
 
 class S1200(BaseDataset):
     def __init__(
@@ -104,14 +112,10 @@ class S1200(BaseDataset):
         age = self.label_dict[age] if isinstance(age, str) else age.float()
 
         y = self.load_sequence(subject_path, start_frame, sequence_length)
-
+        
+        background_value = y.flatten()[0]
         y = y.permute(0,4,1,2,3)
-        # TODO: background_value is also padded on the mean and std value. Should be modified that the mean and std value should pad their boundary
-        # background_value = y.flatten()[0]
-        # y = torch.nn.functional.pad(y, (8, 7, 2, 1, 11, 10), value=background_value)
-        # TODO: the above TODO is fixed by inserting mode='replicate' in functinoal.pad.
-        y = torch.nn.functional.pad(y, (8, 7, 2, 1, 11, 10), mode='replicate')
-
+        y = torch.nn.functional.pad(y, (8, 7, 2, 1, 11, 10), value=background_value)
         y = y.permute(0,2,3,4,1)
 
         return {
@@ -121,4 +125,5 @@ class S1200(BaseDataset):
             "age": age,
             "TR": start_frame,
         } 
+    
 
