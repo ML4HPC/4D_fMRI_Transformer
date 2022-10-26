@@ -171,6 +171,44 @@ class Encoder(BaseModel):
         torch.cuda.nvtx.range_pop()
         return x
 
+    
+class Encoder_MobileNetv2(BaseModel):
+    def __init__(self,**kwargs):
+        super(Encoder, self).__init__()
+        self.register_vars(**kwargs)
+        self.down_block1 = nn.Sequential(OrderedDict([
+            ('conv0', nn.Conv3d(self.inChannels, self.model_depth, kernel_size=3, stride=1, padding=1)),
+            ('sp_drop0', nn.Dropout3d(self.dropout_rates['input'])),
+            ('green0', GreenBlock(self.model_depth, self.model_depth, self.dropout_rates['green'])),
+            ('downsize_0', nn.Conv3d(self.model_depth, self.model_depth * 2, kernel_size=3, stride=2, padding=1))]))
+        self.down_block2 = nn.Sequential(OrderedDict([
+            ('green10', GreenBlock(self.model_depth * 2, self.model_depth * 2, self.dropout_rates['green'])),
+            ('green11', GreenBlock(self.model_depth * 2, self.model_depth * 2, self.dropout_rates['green'])),
+            ('downsize_1', nn.Conv3d(self.model_depth * 2, self.model_depth * 4, kernel_size=3, stride=2, padding=1))]))
+        self.down_block3 = nn.Sequential(OrderedDict([
+            ('green20', GreenBlock(self.model_depth * 4, self.model_depth * 4, self.dropout_rates['green'])),
+            ('green21', GreenBlock(self.model_depth * 4, self.model_depth * 4, self.dropout_rates['green'])),
+            ('downsize_2', nn.Conv3d(self.model_depth * 4, self.model_depth * 8, kernel_size=3, stride=2, padding=1))]))
+        self.final_block = nn.Sequential(OrderedDict([
+            ('green30', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green'])),
+            ('green31', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green'])),
+            ('green32', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green'])),
+            ('green33', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green']))]))
+
+    def forward(self,x):
+        torch.cuda.nvtx.range_push("down_block1")
+        x = self.down_block1(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("down_block2")
+        x = self.down_block2(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("down_block3")
+        x = self.down_block3(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("final_block")
+        x = self.final_block(x)
+        torch.cuda.nvtx.range_pop()
+        return x
 
 class BottleNeck_in(BaseModel):
     def __init__(self,**kwargs):

@@ -48,10 +48,10 @@ class DenseNet3D(nn.Module):
     def __init__(self):
         super(DenseNet3D, self).__init__()
         model = densenet3D121()
-        #device = torch.device("cuda")
-        dn3_weight = torch.load('./CNN_hardparameter_sharing/densenet3D121_UKB_age_180097.pth')
-        dn3_weight.popitem() # remove 'classifiers.0.0.bias'
-        dn3_weight.popitem() # remove 'classifiers.0.0.weight'
+        #dn3_weight = torch.load('./CNN_hardparameter_sharing/densenet3D121_UKB_age_180097.pth')
+        dn3_weight = torch.load('./CNN_hardparameter_sharing/UKB_sex_densenet3D121_6cbde7.pth')
+        #dn3_weight.popitem() # remove 'classifiers.0.0.bias'
+        #dn3_weight.popitem() # remove 'classifiers.0.0.weight'
         model.load_state_dict(dn3_weight)
         features = model.features
         self.to_relu_1_2 = nn.Sequential()
@@ -201,12 +201,17 @@ class Mask_Loss(nn.Module):
         mask_list : masking한 index (0 ~ 19 사이 임의의 정수 3개) : torch.Size([4, 3])
         '''
         seq_len = input.shape[1]
+        print('seq len is:', seq_len)
         batch_size = input.shape[0]
-        masked_index_size = mask_list.shape[1]
-        #print('shape of mask_list is:', mask_list.shape)
+        print('batch size is:', batch_size)
+        masked_index_size = mask_list.shape[1] # 3
+        #shape of mask_list is: torch.Size([1, 3])..? 왜..? 아.... multinode... -> when slurm
+        #shape of mask_list is: torch.Size([4, 3])..? -> when interactive node
         
         whole_loss = 0
-        for j in range(batch_size):
+        
+        # batch size is divided by 4 for slurm script (이거 어떻게 조건 줘야 할 지 모르겠음 - Stella)
+        for j in range(batch_size//4):
             loss_per_batch = 0
             for k in range(masked_index_size):
                 idx_masked_vox = mask_list[j][k]
