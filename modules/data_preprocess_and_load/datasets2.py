@@ -14,6 +14,7 @@ class BaseDataset(Dataset):
     def __init__(
             self,
             root='/mnt/ssd/processed/S1200',
+            img_cache=None,
             sequence_length=20,
             use_augmentations=False,
             contrastive=False,
@@ -23,10 +24,30 @@ class BaseDataset(Dataset):
 
         # if use_augmentations or contrastive:
         #     raise NotImplementedError()
+        self.cache = img_cache
         self.data = self._set_data(root, sequence_length)
         self.with_voxel_norm = with_voxel_norm
 
     def load_sequence(self, subject_path, start_frame, session_duration):
+        # shared cache
+        # def  torchio_cache(path):
+        #     if path not in self.cache:
+        #         self.cache[path] = torch.load(path).unsqueeze(0)
+        #     return self.cache[path]
+
+        # y = []
+        # load_fnames = [f'frame_{frame}.pt' for frame in range(start_frame, start_frame+session_duration)]
+        # if self.with_voxel_norm:
+        #     load_fnames += ['voxel_mean.pt', 'voxel_std.pt']
+            
+        # for fname in load_fnames:
+        #     img_path = os.path.join(subject_path, fname)
+        #     # shared cache
+        #     y_i = torchio_cache(img_path)
+        #     y.append(y_i)
+        # y = torch.cat(y, dim=4)
+
+
         y = []
         load_fnames = [f'frame_{frame}.pt' for frame in range(start_frame, start_frame+session_duration)]
         if self.with_voxel_norm:
@@ -61,6 +82,7 @@ class S1200(BaseDataset):
     def __init__(
             self,
             root='/mnt/ssd/processed/S1200',
+            img_cache=None,
             sequence_length=20,
             use_augmentations=False,
             contrastive=False,
@@ -71,6 +93,7 @@ class S1200(BaseDataset):
         super(S1200, self).__init__(
             root=root,
             sequence_length=sequence_length,
+            img_cache=img_cache,
             use_augmentations=use_augmentations,
             contrastive=contrastive,
             with_voxel_norm=with_voxel_norm)
@@ -126,4 +149,78 @@ class S1200(BaseDataset):
             "TR": start_frame,
         } 
     
+class ABCD(BaseDataset):
+    def __init__(
+            self,
+            root='/mnt/ssd/processed/ABCD',
+            sequence_length=20,
+            use_augmentations=False,
+            contrastive=False,
+            with_voxel_norm=False,
+            dtype='float16',
+            target = 'sex',
+        ):
+        self.dtype=dtype
+        self.target = target
+        super(ABCD, self).__init__(
+            root=root,
+            sequence_length=sequence_length,
+            use_augmentations=use_augmentations,
+            contrastive=contrastive,
+            with_voxel_norm=with_voxel_norm,
+            )
+
+    def _set_data(self, root, sequence_length):
+        data = []
+        self.meta_data = pd.read_csv(os.path.join(root, "metadata", "ABCD_phenotype_total.csv"))
+        img_root = os.path.join(root, 'img')
+        subject_list = os.listdir(img_root)
+        if self.target == 'sex': task_name = 'sex'
+        elif self.target == 'age': task_name = 'age'
+        elif self.target == 'int_total': task_name = 'nihtbx_totalcomp_uncorrected'
+        elif self.target == 'int_fluid': task_name = 'nihtbx_fluidcomp_uncorrected'
+        elif self.target == 'ASD': task_name = 'ASD_label'
+        elif self.target == 'ADHD': task_name = 'ADHD_label'
+        else: raise ValueError('downstream task not supported')
+
+        # drop nan
+        meta_task = self.meta_data[['subjectkey',task_name]].dropna()
+        non_na_subjects = meta_task['subjectkey'].values
+        subject_list = [subj for subj in subject_list if subj[4:] in non_na_subjects]
+
+        for i, subject in enumerate(subject_list):
+            subject_name = subject[4:]
+
+            #if subject_name in meta_task['subjectkey'].values:
+            target = meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0]
+
+            subject_path = os.path.join(img_root, subject)
+
+            num_frames = len(os.listdir(subject_path)) - 2 # voxel mean & std
+            session_duration = num_frames - sequence_length + 1
+
+            for start_frame in range(0, session_duration, sequence_length):
+                data_tuple = (i, subject_name, subject_path, start_frame, sequence_length, target)
+                data.append(data_tuple)
+        return data
+
+    def __getitem__(self, index):
+        _, subject_name, subject_path, start_frame, sequence_length, target = self.data[index]
+        #age = self.label_dict[age] if isinstance(age, str) else age.float()
+
+        y = self.load_sequence(subject_path, start_frame, sequence_length)
+
+        background_value = y.flatten()[0]
+        y = y.permute(0,4,1,2,3)
+        # ABCD image shape: 79, 97, 85
+        y = torch.nn.functional.pad(y, (6, 5, 0, 0, 9, 8), value=background_value)[:,:,:,:96,:]
+        y = y.permute(0,2,3,4,1)
+
+        return {
+            "fmri_sequence": y,
+            "subject": subject_name,
+            f"{self.target}": target,
+            "TR": start_frame,
+        } 
+
 
