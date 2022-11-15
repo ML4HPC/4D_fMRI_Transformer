@@ -7,7 +7,7 @@ import torch
 import warnings
 import numpy as np
 from tqdm import tqdm
-from .model import Encoder_Transformer_Decoder,Encoder_Transformer_finetune,AutoEncoder
+from .model import Encoder_Transformer_Decoder,Encoder_Transformer_finetune,AutoEncoder,MobileNet_v2_Transformer_finetune, MobileNet_v3_Transformer_finetune
 from .losses import get_intense_voxels
 import time
 import pathlib
@@ -25,7 +25,7 @@ import builtins
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 
-
+import optuna
 # ASP
 #from apex.contrib.sparsity import ASP
 
@@ -44,7 +44,8 @@ class Trainer():
         self.eval_iter = 0
         self.batch_index = None
         self.best_loss = 100000
-        self.best_accuracy = 0
+        #self.best_accuracy = 0
+        self.best_AUROC = 0
         self.st_epoch = 1
         
         self.lr_handler = LrHandler(**kwargs)
@@ -68,7 +69,7 @@ class Trainer():
         
         self.load_optim_checkpoint()
 
-        self.writer = Writer(sets,**kwargs) #여기서 이미 writer class를 불러옴.
+        self.writer = Writer(sets,**kwargs)
         self.sets = sets
         
         self.nan_list = []
@@ -78,7 +79,7 @@ class Trainer():
                 print('using {} loss'.format(name))
                 setattr(self, name + '_loss_func', loss_dict['criterion'])
     
-    def find_pth(self, files_Path):
+    def _sort_pth_files(self, files_Path):
         file_name_and_time_lst = []
         for f_name in os.listdir(files_Path):
             if f_name.endswith('.pth'):
@@ -90,8 +91,8 @@ class Trainer():
         return sorted_file_lst
     
     def load_model_checkpoint(self):
-        pths = self.find_pth(self.experiment_folder)
-        if len(pths) > 0 : # if there are any checkpoints
+        pths = self._sort_pth_files(self.experiment_folder)
+        if len(pths) > 0 : # if there are any checkpoints from which we can resume the training. 
             self.recent_pth = pths[0][0] # the most recent checkpoints
             print(f'loading checkpoint from {os.path.join(self.experiment_folder,self.recent_pth)}')
             self.state_dict = torch.load(os.path.join(self.experiment_folder,self.recent_pth),map_location='cpu') #, map_location=self.device
@@ -117,13 +118,16 @@ class Trainer():
             self.scaler.load_state_dict(self.state_dict['amp_state'])
             self.st_epoch = int(self.state_dict['epoch']) + 1
             self.best_loss = self.state_dict['loss_value']
+            text = 'Training start from epoch {} and learning rate {}.'.format(self.st_epoch, self.optimizer.param_groups[0]['lr'])
+            if 'AUROC' in self.state_dict:
+                text += 'validation AUROC - {}'.format(self.state_dict['AUROC'])
             print('Training start from epoch {} and learning rate {}.'.format(self.st_epoch, self.optimizer.param_groups[0]['lr']))
             
         elif self.state_dict:  # if there are weights from previous phase
             text = 'loaded model weights:\nmodel location - {}\nlast learning rate - {}\nvalidation loss - {}\n'.format(
                 self.loaded_model_weights_path, self.state_dict['lr'],self.state_dict['loss_value'])
-            if 'accuracy' in self.state_dict:
-                text += 'validation accuracy - {}'.format(self.state_dict['accuracy'])
+            if 'AUROC' in self.state_dict:
+                text += 'validation AUROC - {}'.format(self.state_dict['AUROC'])
             print(text)
         else:
             pass
@@ -157,8 +161,14 @@ class Trainer():
 
     def create_model(self):
         dim = next(iter(self.train_loader))["fmri_sequence"].shape[1:5] # channel, w, h, d
-        if self.task.lower() == ('fine_tune' or 'test'):
-            self.model = Encoder_Transformer_finetune(dim,**self.kwargs)
+        #print('task is:', self.task.lower()) transformer_reconstruction
+        if self.task.lower() in ['fine_tune', 'test']:
+            if self.block_type == 'MobileNet_v2':
+                self.model = MobileNet_v2_Transformer_finetune(dim,**self.kwargs)
+            elif self.block_type == 'MobileNet_v3':
+                self.model = MobileNet_v3_Transformer_finetune(dim,**self.kwargs)
+            elif self.block_type == 'green':
+                self.model = Encoder_Transformer_finetune(dim,**self.kwargs)
         elif self.task.lower() == 'autoencoder_reconstruction':
             self.model = AutoEncoder(dim,**self.kwargs)
         elif self.task.lower() == 'transformer_reconstruction':
@@ -201,17 +211,21 @@ class Trainer():
             start = time.time()
             self.train_epoch(epoch)
             if (not self.distributed) or self.rank == 0 :
-                self.eval_epoch('val')
-                print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs)) 
-                self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
-                self.writer.accuracy_summary(mid_epoch=True)
-                self.writer.save_history_to_csv()
-                self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
+                if not self.use_optuna:
+                    self.eval_epoch('val')
+                    print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs))
+                    # print losses
+                    self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
+                    self.writer.accuracy_summary(mid_epoch=True)
+                    self.writer.save_history_to_csv()
+                    self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
             # else:
             #     dist.barrier()
             end = time.time()
             
             print(f'time taken to perform {epoch}: {end-start:.2f}')
+        
+        return self.best_AUROC, self.best_loss #validation AUROC
             
  
     def train_epoch(self,epoch):       
@@ -220,7 +234,7 @@ class Trainer():
         self.train()
 
         times = []
-        for batch_idx, input_dict in enumerate(tqdm(self.train_loader,position=0,leave=True)): 
+        for batch_idx, input_dict in enumerate(tqdm(self.train_loader,position=0,leave=not self.use_optuna)): 
             ### training ###
             #start_time = time.time()
             torch.cuda.nvtx.range_push("training steps")
@@ -266,6 +280,8 @@ class Trainer():
                 self.optimizer.step()
                 torch.cuda.nvtx.range_pop()
                 self.lr_handler.schedule_check_and_update(self.optimizer)
+
+            # register losses
             self.writer.write_losses(loss_dict, set='train')
             
             #end_time = time.time()
@@ -273,15 +289,16 @@ class Trainer():
             #times.append(end_time - start_time)
             torch.cuda.nvtx.range_pop()
             
-            
-            
+
             #for profiling, early stopping
             if self.profiling == True:
                 if batch_idx == 10 : 
                     break
 
+            # use batch-validation only for Optuna tuning 
             if (batch_idx + 1) % self.validation_frequency == 0:
-                print(f'evaluating and saving checkpoint at epoch {epoch} batch {batch_idx}')
+                step = ((batch_idx + 1) // self.validation_frequency)-1 # start from 0
+                print(f'optuna: evaluating at epoch {epoch} batch {batch_idx}')
                 if (not self.distributed) or self.rank == 0 :
                     ### validation ##
                     self.eval_epoch('val')
@@ -289,46 +306,47 @@ class Trainer():
                     self.writer.accuracy_summary(mid_epoch=True)
                     self.writer.experiment_title = self.writer.experiment_title
                     self.writer.save_history_to_csv()
-                
-                    self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
+                    if not self.use_optuna:
+                        self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
+                    # val_loss = self.get_last_loss()
+                    val_AUROC = self.get_last_AUROC()
+
+                    if val_AUROC > self.best_AUROC:
+                        self.best_AUROC = val_AUROC
+                    
+                    # report current performances
+                    self.trial.report(val_AUROC, step=step)
+
+                    if self.trial.should_prune():
+                        raise optuna.exceptions.TrialPruned()
+        
                     self.train()
                 # else:
                 #     dist.barrier()
                 
     def eval_epoch(self,set):
         loader = self.val_loader if set == 'val' else self.test_loader
-        # print('set is:', set) - test로 잘 잡힘
-        print('test loader is:', loader) #- 왜 None??
         self.eval(set)
         with torch.no_grad():
-            #times = [] 
             for batch_idx, input_dict in enumerate(tqdm(loader, position=0, leave=True)):
-                # start_time = time.time()
                 with autocast():
                     loss_dict, _ = self.forward_pass(input_dict)
-                # end_time = time.time()
-                # print('times taken to execute step {0}: {1}'.format(batch_idx,end_time-start_time))
-                #times.append(end_time-start_time)
+                # register losses
                 self.writer.write_losses(loss_dict, set=set)
                 if self.profiling == True:
                     if batch_idx == 10 : 
                         break
-        #print('time spent for validation:',np.mean(times)) 
         
     def forward_pass(self,input_dict):
         '''
-        shape of input dict is : torch.Size([4, 2, 75, 93, 81, 20])
+        shape of input dict is : torch.Size([batch, ch, w, h, d, t])
         '''
-        #expected input[20, 1, 75, 93, 81]
         input_dict = {k:(v.to(self.gpu) if (self.cuda and torch.is_tensor(v)) else v) for k,v in input_dict.items()}
-        #print('forward pass is working before computing output dict!')
-        # shape of input_dict['fmri_sequence'] is: torch.Size([4, 2, 75, 93, 81, 20]) #이건 문제 없음 !!!
-        output_dict = self.model(input_dict['fmri_sequence']) #배치 하나 만들 때 문제가 생기는듯..?
-        #print('forward pass is working after computing output dict!')
+        output_dict = self.model(input_dict['fmri_sequence']) 
         torch.cuda.nvtx.range_push("aggregate_losses")
         loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
         torch.cuda.nvtx.range_pop()
-        if self.task == 'fine_tune':
+        if self.task in ['fine_tune', 'test']:
             self.compute_accuracy(input_dict, output_dict)
         return loss_dict, loss
 
@@ -342,11 +360,13 @@ class Trainer():
                 torch.cuda.nvtx.range_push(f"{loss_name}")
                 current_loss_value = loss_func(input_dict,output_dict)
                 torch.cuda.nvtx.range_pop()
+                """
                 if current_loss_value.isnan().sum() > 0:
                     warnings.warn('found nans in computation')
                     print('at {} loss'.format(loss_name))
                     self.nan_list+=np.array(input_dict['subject_name'])[(output_dict['reconstructed_fmri_sequence'].reshape(output_dict['reconstructed_fmri_sequence'].shape[0],-1).isnan().sum(axis=1).detach().cpu().numpy() > 0)].tolist()
                     print('current_nan_list:',set(self.nan_list))
+                """
                 lamda = current_loss_dict['factor']
                 factored_loss = current_loss_value * lamda
                 final_loss_dict[loss_name] = factored_loss.item()
@@ -355,14 +375,16 @@ class Trainer():
         return final_loss_dict, final_loss_value
         
     def testing(self):
-        self.eval_epoch('test')
-        self.writer.loss_summary(lr=0)
-        self.writer.accuracy_summary(mid_epoch=False)
-        for metric_name in dir(self.writer):
-            if 'history' not in metric_name:
-                continue
-            metric_score = getattr(self.writer,metric_name)[-1]
-            print('final test score - {} = {}'.format(metric_name,metric_score))
+        if (not self.distributed) or self.rank == 0 :
+            self.eval_epoch('test')
+            self.writer.loss_summary(lr=0)
+            self.writer.accuracy_summary(mid_epoch=False)
+            for metric_name in dir(self.writer):
+                if ('history' not in metric_name) or ( metric_name == 'save_history_to_csv') :
+                    continue
+                print(metric_name)
+                metric_score = getattr(self.writer,metric_name)[-1]
+                print('final test score - {} = {}'.format(metric_name,metric_score))
     
     def train(self):
         self.mode = 'train'
@@ -378,7 +400,7 @@ class Trainer():
         else:
             return self.writer.total_val_loss_history[-1]
 
-    def get_last_accuracy(self):
+    def get_last_AUROC(self):
         if hasattr(self.writer,'val_AUROC'):
             return self.writer.val_AUROC[-1]
         else:
@@ -386,8 +408,9 @@ class Trainer():
 
     def save_checkpoint_(self, epoch, batch_idx, scaler):
         loss = self.get_last_loss()
-        accuracy = self.get_last_accuracy()
-        title = str(self.writer.experiment_title) + '_epoch_' + str(int(epoch)) + '_batch_index_'+ str(batch_idx) # 이 함수 안에서만 쓰도록 함~
+        #accuracy = self.get_last_AUROC()
+        AUROC = self.get_last_AUROC()
+        title = str(self.writer.experiment_title) + '_epoch_' + str(int(epoch)) + '_batch_index_'+ str(batch_idx)
         
         directory = self.writer.experiment_folder
 
@@ -404,11 +427,14 @@ class Trainer():
             'epoch':epoch,
             'loss_value':loss,
             'amp_state': amp_state}
-        if accuracy is not None:
-            ckpt_dict['accuracy'] = accuracy
+
+        #if accuracy is not None:
+        if AUROC is not None:
+            ckpt_dict['AUROC'] = AUROC
         if self.lr_handler.schedule is not None:
             ckpt_dict['schedule_state_dict'] = self.lr_handler.schedule.state_dict()
             ckpt_dict['lr'] = self.optimizer.param_groups[0]['lr']
+            print(f"current_lr:{self.optimizer.param_groups[0]['lr']}")
         if hasattr(self,'loaded_model_weights_path'):
             ckpt_dict['loaded_model_weights_path'] = self.loaded_model_weights_path
         
@@ -420,13 +446,17 @@ class Trainer():
         core_name = title
         # best loss나 best accuracy를 가진 모델만 저장하는 코드
         # classification
-        if accuracy is not None and self.best_accuracy < accuracy:
-            self.best_accuracy = accuracy
-            name = "{}_BEST_val_accuracy.pth".format(core_name)
+        #if accuracy is not None and self.best_accuracy < accuracy:
+        if AUROC is not None and self.best_AUROC < AUROC:
+            #self.best_accuracy = accuracy
+            self.best_AUROC = AUROC
+            #name = "{}_BEST_val_accuracy.pth".format(core_name)
+            name = "{}_BEST_val_AUROC.pth".format(core_name)
             torch.save(ckpt_dict, os.path.join(directory, name))
-            print(f'updating best saved model with accuracy:{accuracy}')
+            print(f'updating best saved model with AUROC:{AUROC}')
+            #print(f'updating best saved model with accuracy:{accuracy}')
         # regression
-        elif self.best_loss > loss:
+        elif AUROC is None and self.best_loss > loss:
             self.best_loss = loss
             name = "{}_BEST_val_loss.pth".format(core_name)
             torch.save(ckpt_dict, os.path.join(directory, name))

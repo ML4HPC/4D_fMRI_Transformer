@@ -33,7 +33,6 @@ def _get_sync_file():
     
 def init_distributed(args):   
     
-    
     # torchrun: sbatch script에서 WORLD_SIZE를 지정해준 경우 (노드 당 gpu * 노드의 수)
     if "WORLD_SIZE" in os.environ: # for torchrun
         args.world_size = int(os.environ["WORLD_SIZE"])
@@ -63,27 +62,30 @@ def init_distributed(args):
         #print('args.gpu:',args.gpu)    
         if args.init_method == 'file':
             sync_file = _get_sync_file()
-            print('initializing DDP with sync file')
+            #print('initializing DDP with sync file')
         elif args.init_method == 'env':
             sync_file = "env://"
             #os.environ['MASTER_PORT'] = '10025'
             #os.environ['MASTER_ADDR'] = '127.0.0.1'# os.environ['SLURM_JOB_NODELIST']
             #print(os.environ['MASTER_PORT'])
             #print(os.environ['MASTER_ADDR'])
-            print('initializing DDP with env variables')
+            #print('initializing DDP with env variables')
         dist.init_process_group(backend=args.dist_backend, init_method=sync_file,
                             world_size=args.world_size, rank=args.rank)
         dist_init_time = time.time() - start_time
-        print(f'seconds taken for DDP initialization: {dist_init_time}')
+        #print(f'seconds taken for DDP initialization: {dist_init_time}')
     else:
         args.rank = 0
         args.gpu = 0
 
     # suppress printing if not on master gpu
-    if args.rank!=0:
-        def print_pass(*args):
-            pass
-        builtins.print = print_pass
+    if args.use_optuna:
+        pass
+    else:
+        if args.rank!=0:
+            def print_pass(*args):
+                pass
+            builtins.print = print_pass
         
 def weight_loader(args):
     model_weights_path = None
@@ -91,7 +93,7 @@ def weight_loader(args):
         if args.step == '1' :
             task = 'autoencoder_reconstruction'          
         elif args.step == '2':
-            task = 'tranformer_reconstruction'
+            task = 'transformer_reconstruction'
             if os.path.exists(args.model_weights_path_phase1):
                 model_weights_path = args.model_weights_path_phase1 
         elif args.step == '3':
@@ -99,7 +101,7 @@ def weight_loader(args):
             if os.path.exists(args.model_weights_path_phase2):
                 model_weights_path = args.model_weights_path_phase2
         elif args.step == '4':
-            task = None
+            task = 'test'
             #task = 'fine_tune_{}'.format(args.fine_tune_task)
             if os.path.exists(args.model_weights_path_phase3):
                 model_weights_path = args.model_weights_path_phase3
@@ -110,6 +112,18 @@ def weight_loader(args):
     
     # print(f'loading weight from {model_weights_path}')
     return model_weights_path, args.step, task
+
+def sort_pth_files(files_Path):
+        file_name_and_time_lst = []
+        for f_name in os.listdir(files_Path):
+            if f_name.endswith('.pth'):
+                written_time = os.path.getctime(os.path.join(files_Path,f_name))
+                file_name_and_time_lst.append((f_name, written_time))
+        # 생성시간 역순으로 정렬 
+        # first file is the latest file. 
+        sorted_file_lst = sorted(file_name_and_time_lst, key=lambda x: x[1], reverse=True)
+
+        return sorted_file_lst
     
 def datestamp():
     time = datetime.now(timezone('Asia/Seoul')).strftime("%m_%d__%H_%M_%S")
@@ -118,6 +132,7 @@ def datestamp():
 def reproducibility(**kwargs):
     seed = kwargs.get('seed')
     cuda = kwargs.get('cuda')
+    random.seed(seed)
     torch.manual_seed(seed)
     if cuda:
         torch.cuda.manual_seed(seed)

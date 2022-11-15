@@ -15,6 +15,12 @@ import builtins
 #AMP
 from torch.cuda.amp import GradScaler, autocast
 
+import optuna 
+from copy import deepcopy
+import dill
+import logging
+import sys
+
 # ASP
 #from apex.contrib.sparsity import ASP
 
@@ -35,63 +41,155 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     main process that runs each training phase
     :return path to model weights (pytorch file .pth) aquried by the current training phase
     """
-    experiment_folder = '{}_{}_{}_{}'.format(args.dataset_name,phase_name,args.target,args.exp_name) # datestamp() #05_02_20_05_12: 5월 2일 20시 05분 12초
-    #experiment_folder = 'S1200_autoencoder_reconstruction_07_27__09_42_36'
+    experiment_folder = '{}_{}_{}_{}'.format(args.dataset_name,phase_name,args.target,args.exp_name)
     experiment_folder = Path(os.path.join(args.base_path,'experiments',experiment_folder))
     os.makedirs(experiment_folder, exist_ok=True)
     setattr(args,'loaded_model_weights_path_phase' + phase_num,loaded_model_weights_path)
     args.experiment_folder = experiment_folder
     args.experiment_title = experiment_folder.name
     
-    
     fine_tune_task = args.fine_tune_task
     print(f'saving the results at {args.experiment_folder}')
-    args_logger(args)
-    args = sort_args(phase_num, vars(args))
-    S = ['train','val']
-    trainer = Trainer(sets=S,**args)
-    trainer.training()
-    if phase_num == '3' and not fine_tune_task == 'regression':
-        critical_metric = 'accuracy'
-    else:
-        critical_metric = 'loss'
-    model_weights_path = os.path.join(trainer.writer.experiment_folder,trainer.writer.experiment_title + '_BEST_val_{}.pth'.format(critical_metric))
     
-    return model_weights_path
+    # save hyperparameters
+    args_logger(args)
+
+    # make args to dict. + detach phase numbers from args
+    kwargs = sort_args(phase_num, vars(args))
+
+    S = ['train','val']
+
+    if kwargs.get('use_optuna') == True:
+        # referred to these links
+        # https://python-bloggers.com/2022/08/hyperparameter-tuning-a-transformer-with-optuna/
+
+        LR_MIN = 1e-5
+        LR_CEIL = 1e-2
+        WD_MIN = 4e-5
+        WD_CEIL = 0.01
+        
+        #TF_HL = [4,8,16]
+        #TF_AH = [4,8,16]
+        #SL = [8,16,20,32]
+        Validation_Frequency = 1000
+        NUM_EPOCHS = 1 # reduce epoch for enough trials
+        is_classification = kwargs.get('fine_tune_task') == 'binary_classification'
+
+        def objective(single_trial: optuna.Trial): 
+            # https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_distributed_simple.py
+            trial = optuna.integration.pytorch_distributed.TorchDistributedTrial(single_trial, device=torch.device(args.gpu))
+
+
+            trial_kwargs = deepcopy(kwargs)
+            # validate the performance per 500 iteration
+            trial_kwargs['optim'] = 'Adam'
+            trial_kwargs['validation_frequency'] = Validation_Frequency 
+            trial_kwargs['lr_init'] = trial.suggest_loguniform('lr_init', low=LR_MIN, high=LR_CEIL)
+            trial_kwargs['weight_decay'] = trial.suggest_loguniform('weight_decay', low=WD_MIN, high=WD_CEIL)
+            #trial_kwargs['transformer_hidden_layers'] = trial.suggest_categorical('transformer_hidden_layers', choices= TF_HL)
+            #trial_kwargs['transformer_num_attention_heads'] = trial.suggest_categorical('transformer_num_attention_heads', choices=TF_AH)
+            #trial_kwargs['sequence_length'] = trial.suggest_categorical('sequence_length', choices=SL)
+            trial_kwargs['nEpochs'] = NUM_EPOCHS
+            trial_kwargs['trial'] = trial
+
+            
+            trainer = Trainer(sets=S,**trial_kwargs)
+
+            # classification
+            best_val_AUROC, best_val_loss = trainer.training()
+
+            return best_val_AUROC if is_classification else best_val_loss
+
+
+        #----------------------------------------------------------------------------------------------------
+        #                    CREATE OPTUNA STUDY
+        #----------------------------------------------------------------------------------------------------
+
+        print('Triggering Optuna study')
+        NUM_TRIALS = args.num_trials
+        study_name = args.exp_name
+        optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
+        if args.rank == 0:
+            print('study_name:',study_name)
+            storage=optuna.storages.RDBStorage(
+            url="sqlite:///{}.db".format(study_name),
+            engine_kwargs={ "connect_args": {"timeout": 10}},
+            skip_compatibility_check=True
+            )
+            study = optuna.create_study(study_name=study_name, sampler=optuna.samplers.RandomSampler(), pruner = optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=5, interval_steps=1) ,storage=storage, load_if_exists=True, direction='maximize' if is_classification else 'minimize') 
+            study.optimize(objective, n_trials=NUM_TRIALS)  
+        else:
+            for _ in range(NUM_TRIALS):
+                try:
+                    objective(None)
+                except optuna.TrialPruned:
+                    pass
+
+        if args.rank == 0:
+            assert study is not None
+            pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+            complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            
+            print("Study statistics: ")
+            print("Number of finished trials: ", len(study.trials))
+            print("Number of pruned trials: ", len(pruned_trials))
+            print("Number of complete trials: ", len(complete_trials))
+
+            print('Finding study best parameters')
+            print("Best trial:")
+            trial = study.best_trial
+            print("  Value: ", trial.value)
+            
+            print("  Params: ")
+            for key, value in trial.params.items():
+                print("    {}: {}".format(key, value))
+                print('replace hyperparameter with best hyperparameters')
+                kwargs[key] = value
+
+            #kwargs to pkl
+            with open(os.path.join(args.experiment_folder,'best_arguments.pkl'),'wb') as f:
+                dill.dump(kwargs,f)
+            
+            #kwargs to txt
+            with open(os.path.join(args.experiment_folder,'best_argument_documentation.txt'),'w+') as f:
+                for name,arg in kwargs.items():
+                    f.write('{}: {}\n'.format(name,arg))
+
+    else:
+        trainer = Trainer(sets=S,**kwargs)
+        trainer.training()
+
+        # sort the pth files at the target directory. (the latest pth file comes first.)
+        pths = sort_pth_files(self.experiment_folder)
+
+        if len(pths) > 0 : 
+            return pths[0][0] # the most recent checkpoints (= the best model checkpoints)
+        else:
+            return None
 
 
 def test(args,phase_num,model_weights_path):
-    experiment_folder = '{}_{}_{}'.format(args.dataset_name, 'test_{}'.format(args.fine_tune_task), args.exp_name) #, datestamp())
+    experiment_folder = '{}_{}_{}'.format(args.dataset_name, 'test_{}'.format(args.fine_tune_task), args.exp_name) 
     experiment_folder = Path(os.path.join(args.base_path,'tests', experiment_folder))
     os.makedirs(experiment_folder,exist_ok=True)
-    setattr(args,'loaded_model_weights_path_phase' + phase_num, model_weights_path) # 이름이 이게 맞나?
+    setattr(args,'loaded_model_weights_path_phase' + phase_num, model_weights_path) 
     
     args.experiment_folder = experiment_folder
     args.experiment_title = experiment_folder.name
-    args_logger(args)
-    args = sort_args(args.step, vars(args))
-    S = ['test']
-    #trainer = Trainer(experiment_folder, '3', args, ['test'], model_weights_path)
-    trainer = Trainer(sets=S,**args)
-    trainer.testing()
-    
-    if not args.fine_tune_task == 'regression':
-        critical_metric = 'accuracy'
-    else:
-        critical_metric = 'loss'
-    model_weights_path = os.path.join(trainer.writer.experiment_folder,trainer.writer.experiment_title + '_BEST_test_{}.pth'.format(critical_metric))
 
-''' 기존 함수
-def test(args,model_weights_path):
-    experiment_folder = '{}_{}_{}'.format(args.dataset_name, 'test_{}'.format(args.fine_tune_task), datestamp())
-    experiment_folder = os.path.join(args.base_path,'tests', experiment_folder)
-    os.makedirs(experiment_folder,exist_ok=True)
-    trainer = Trainer(experiment_folder, '3', args, ['test'], model_weights_path)
+    fine_tune_task = args.fine_tune_task
+    # save hyperparameters
+    args_logger(args)
+    # make args to dict. + detach phase numbers from args
+    kwargs = sort_args(args.step, vars(args))
+    S = ['test']
+    trainer = Trainer(sets=S,**kwargs)
     trainer.testing()
-'''
+
 
 if __name__ == '__main__':
     base_path = os.getcwd() 
+    print(base_path)
     setup_folders(base_path) 
     args = get_arguments(base_path)
 
@@ -101,11 +199,17 @@ if __name__ == '__main__':
     # load weights that you specified at the Argument
     model_weights_path, step, task = weight_loader(args)
 
-    if step == '4' :
+    if step == '4' : # test_only
         print(f'starting testing')
-        phase_num = '4'
-        test(args, phase_num, model_weights_path) # have some problems here - I checked it! -Stella 
+        test(args, step, model_weights_path) 
+        print(f'finishing testing')
     else:
         print(f'starting phase{step}: {task}')
-        run_phase(args,model_weights_path,step,task)
+        model_weights_path = run_phase(args,model_weights_path,step,task)
         print(f'finishing phase{step}: {task}')
+
+        # after finishing step3(classification/regression), run test.
+        if step == '3':
+            print(f'starting testing')
+            test(args, '4', model_weights_path) 
+            print(f'finishing testing')
