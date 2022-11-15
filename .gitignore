@@ -4,3 +4,5 @@ runs/
 *.swp
 experiments/
 data/splits/
+*.o*
+*db

@@ -10,8 +10,6 @@ import random
 class BaseModel(nn.Module, ABC):
     def __init__(self):
         super().__init__()
-        self.best_loss = 1000000
-        self.best_accuracy = 0
 
     @abstractmethod
     def forward(self, x):
@@ -46,9 +44,9 @@ class BaseModel(nn.Module, ABC):
         intermediate_vec = kwargs.get('transformer_emb_size')
         # Dropout rates for each layer
         if kwargs.get('task') == 'fine_tune':
-            self.dropout_rates = {'input': 0, 'green': 0.35,'Up_green': 0,'transformer':0.1}
+            self.dropout_rates = {'input': 0, 'green': 0.35,'mobilev3': 0.35,'Up_green': 0,'transformer':0.1}
         else:
-            self.dropout_rates = {'input': 0, 'green': 0.2, 'Up_green': 0.2,'transformer':0.1}
+            self.dropout_rates = {'input': 0, 'green': 0.2, 'mobilev3': 0.35,'Up_green': 0.2,'transformer':0.1}
 
         self.BertConfig = BertConfig(hidden_size=kwargs.get('transformer_emb_size'), vocab_size=1,
                                      num_hidden_layers=kwargs.get('transformer_hidden_layers'),
@@ -89,50 +87,6 @@ class BaseModel(nn.Module, ABC):
             if not was_loaded:
                 print('notice: named parameter - {} is randomly initialized'.format(name))
 
-    # 찾았다! 는 last epoch만 저장하는 코드였음 ^^
-    def save_checkpoint(self, directory, title, epoch, loss, accuracy, optimizer=None,schedule=None):
-        # Create directory to save to
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-
-        # Build checkpoint dict to save.
-        ckpt_dict = {
-            'model_state_dict':self.state_dict(),
-            'optimizer_state_dict':optimizer.state_dict() if optimizer is not None else None,
-            'epoch':epoch,
-            'loss_value':loss}
-        if accuracy is not None:
-            ckpt_dict['accuracy'] = accuracy
-        if schedule is not None:
-            ckpt_dict['schedule_state_dict'] = schedule.state_dict()
-            ckpt_dict['lr'] = schedule.get_last_lr()[0]
-        if hasattr(self,'loaded_model_weights_path'):
-            ckpt_dict['loaded_model_weights_path'] = self.loaded_model_weights_path
-        
-        # Save checkpoint per one epoch - 아직 one epoch도 못 돌았음. 이거 하는 거 의미 없음^%^
-        # core_name = title
-        # print('saving ckpt of {}_epoch'.format(epoch))
-        # name = "{}_epoch_{}.pth".format(core_name, epoch)
-        # torch.save(ckpt_dict, os.path.join(directory, name))
-        
-        # Save the file with specific name
-        core_name = title
-        name = "{}_last_epoch.pth".format(core_name) # (2) 아... last epoch에서만 저장이..되는거야..?^^..?
-        torch.save(ckpt_dict, os.path.join(directory, name)) # (1) 그래서 이 last epoch 모델이 왜 experiments 디렉토리에 저장이 안 되냐 이거지
-        
-        # best loss나 best accuracy를 가진 모델만 저장하는 코드
-        if self.best_loss > loss:
-            self.best_loss = loss
-            name = "{}_BEST_val_loss.pth".format(core_name)
-            torch.save(ckpt_dict, os.path.join(directory, name))
-            print('updating best saved model...')
-        if accuracy is not None and self.best_accuracy < accuracy:
-            self.best_accuracy = accuracy
-            name = "{}_BEST_val_accuracy.pth".format(core_name)
-            torch.save(ckpt_dict, os.path.join(directory, name))
-            print('updating best saved model...')
-
-
 class Encoder(BaseModel):
     def __init__(self,**kwargs):
         super(Encoder, self).__init__()
@@ -171,44 +125,6 @@ class Encoder(BaseModel):
         torch.cuda.nvtx.range_pop()
         return x
 
-    
-class Encoder_MobileNetv2(BaseModel):
-    def __init__(self,**kwargs):
-        super(Encoder, self).__init__()
-        self.register_vars(**kwargs)
-        self.down_block1 = nn.Sequential(OrderedDict([
-            ('conv0', nn.Conv3d(self.inChannels, self.model_depth, kernel_size=3, stride=1, padding=1)),
-            ('sp_drop0', nn.Dropout3d(self.dropout_rates['input'])),
-            ('green0', GreenBlock(self.model_depth, self.model_depth, self.dropout_rates['green'])),
-            ('downsize_0', nn.Conv3d(self.model_depth, self.model_depth * 2, kernel_size=3, stride=2, padding=1))]))
-        self.down_block2 = nn.Sequential(OrderedDict([
-            ('green10', GreenBlock(self.model_depth * 2, self.model_depth * 2, self.dropout_rates['green'])),
-            ('green11', GreenBlock(self.model_depth * 2, self.model_depth * 2, self.dropout_rates['green'])),
-            ('downsize_1', nn.Conv3d(self.model_depth * 2, self.model_depth * 4, kernel_size=3, stride=2, padding=1))]))
-        self.down_block3 = nn.Sequential(OrderedDict([
-            ('green20', GreenBlock(self.model_depth * 4, self.model_depth * 4, self.dropout_rates['green'])),
-            ('green21', GreenBlock(self.model_depth * 4, self.model_depth * 4, self.dropout_rates['green'])),
-            ('downsize_2', nn.Conv3d(self.model_depth * 4, self.model_depth * 8, kernel_size=3, stride=2, padding=1))]))
-        self.final_block = nn.Sequential(OrderedDict([
-            ('green30', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green'])),
-            ('green31', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green'])),
-            ('green32', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green'])),
-            ('green33', GreenBlock(self.model_depth * 8, self.model_depth * 8, self.dropout_rates['green']))]))
-
-    def forward(self,x):
-        torch.cuda.nvtx.range_push("down_block1")
-        x = self.down_block1(x)
-        torch.cuda.nvtx.range_pop()
-        torch.cuda.nvtx.range_push("down_block2")
-        x = self.down_block2(x)
-        torch.cuda.nvtx.range_pop()
-        torch.cuda.nvtx.range_push("down_block3")
-        x = self.down_block3(x)
-        torch.cuda.nvtx.range_pop()
-        torch.cuda.nvtx.range_push("final_block")
-        x = self.final_block(x)
-        torch.cuda.nvtx.range_pop()
-        return x
 
 class BottleNeck_in(BaseModel):
     def __init__(self,**kwargs):
@@ -227,7 +143,6 @@ class BottleNeck_in(BaseModel):
             print('flattened vec identical to intermediate vector...\ndroppping fully conneceted bottleneck...')
         else:
             self.into_bert = nn.Linear(in_features=(self.model_depth // 2) * flat_factor, out_features=self.intermediate_vec)
-            print(f'applying fully conneceted layer to change intermediate embedding from {(self.model_depth // 2) * flat_factor} to {self.intermediate_vec}...')
 
     def forward(self, inputs):
         x = self.reduce_dimension(inputs)
@@ -436,7 +351,7 @@ class Encoder_Transformer_Decoder(BaseModel):
         for x in mask_list:
             encoded_copy[:, x:x+1, :] = torch.zeros(encoded_copy.shape[0], 1, encoded_copy.shape[2])
         
-        device = encoded.get_device()
+        device = encoded.get_device() if encoded.get_device() >= 0 else 'cpu'
         mask_list = torch.tensor(mask_list).reshape(1, -1).to(device)
         #print('mask list of model.py is:', mask_list)
         
@@ -494,3 +409,238 @@ class Encoder_Transformer_finetune(BaseModel):
         prediction = self.regression_head(CLS)
         torch.cuda.nvtx.range_pop()
         return {self.task:prediction}
+
+class MobileNet_v2_Transformer_finetune(BaseModel):
+    def __init__(self,dim,**kwargs):
+        super(MobileNet_v2_Transformer_finetune, self).__init__()
+        self.task = kwargs.get('fine_tune_task')
+        self.register_vars(**kwargs)
+
+        last_channel = self.intermediate_vec
+        
+        # ENCODING
+        self.encoder = MobileNetV2(last_channel).to(memory_format=torch.channels_last_3d)
+        #self.determine_shapes(self.encoder, dim)
+        #kwargs['shapes'] = self.shapes
+        # BottleNeck into bert
+        #self.into_bert = BottleNeck_in(**kwargs).to(memory_format=torch.channels_last_3d)
+
+        # transformer
+        self.transformer = Transformer_Block(self.BertConfig,**kwargs).to(memory_format=torch.channels_last_3d)
+        # finetune classifier
+        #if kwargs.get('fine_tune_task') == 'regression':
+        #    self.final_activation_func = nn.LeakyReLU()
+        #elif kwargs.get('fine_tune_task') == 'binary_classification':
+        #    self.final_activation_func = nn.Sigmoid()
+        #    self.label_num = 1
+        #self.regression_head = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.label_num),self.final_activation_func).to(memory_format=torch.channels_last_3d)
+        self.regression_head = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.label_num)).to(memory_format=torch.channels_last_3d)
+
+    def forward(self, x):
+        batch_size, inChannels, W, H, D, T = x.shape
+        x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, inChannels, W, H, D)
+
+        # changed from NCHDW to NHWDC format for accellerating
+        x = x.contiguous(memory_format=torch.channels_last_3d)
+        encoded = self.encoder(x)
+        #encoded = self.into_bert(encoded)
+        encoded = encoded.reshape(batch_size, T, -1)
+        torch.cuda.nvtx.range_push("transformers")
+        transformer_dict = self.transformer(encoded)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("regression head")
+        CLS = transformer_dict['cls']
+        prediction = self.regression_head(CLS)
+        torch.cuda.nvtx.range_pop()
+        return {self.task:prediction}
+
+class MobileNetV3(BaseModel):
+    def __init__(self, **kwargs):
+        super(MobileNetV3, self).__init__()
+        self.register_vars(**kwargs)
+
+        input_size=96
+        input_channel = 16
+        mode='small'
+        width_mult=1.0
+        last_channel = self.intermediate_vec
+        norm_layer = nn.BatchNorm3d
+        nlin_layer = nn.ReLU
+
+        if mode == 'large':
+            # refer to Table 1 in paper
+            mobile_setting = [
+                # k, exp, c,  se,     nl,  s,
+                [3, 16,  16,  False, 'RE', 1],
+                [3, 64,  24,  False, 'RE', 2],
+                [3, 72,  24,  False, 'RE', 1],
+                [5, 72,  40,  True,  'RE', 2],
+                [5, 120, 40,  True,  'RE', 1],
+                [5, 120, 40,  True,  'RE', 1],
+                [3, 240, 80,  False, 'HS', 2],
+                [3, 200, 80,  False, 'HS', 1],
+                [3, 184, 80,  False, 'HS', 1],
+                [3, 184, 80,  False, 'HS', 1],
+                [3, 480, 112, True,  'HS', 1],
+                [3, 672, 112, True,  'HS', 1],
+                [5, 672, 160, True,  'HS', 2],
+                [5, 960, 160, True,  'HS', 1],
+                [5, 960, 160, True,  'HS', 1],
+            ]
+        elif mode == 'small':
+            # refer to Table 2 in paper
+            mobile_setting = [
+                # k, exp, c,  se,     nl,  s,
+                [3, 16,  16,  True,  'RE', 2],
+                [3, 72,  24,  False, 'RE', 2],
+                [3, 88,  24,  False, 'RE', 1],
+                [5, 96,  40,  True,  'HS', 2],
+                [5, 240, 40,  True,  'HS', 1],
+                [5, 240, 40,  True,  'HS', 1],
+                [5, 120, 48,  True,  'HS', 1],
+                [5, 144, 48,  True,  'HS', 1],
+                [5, 288, 96,  True,  'HS', 2],
+                [5, 576, 96,  True,  'HS', 1],
+                [5, 576, 96,  True,  'HS', 1],
+            ]
+
+        elif mode == 'mini':
+            # refer to Table 2 in paper
+            mobile_setting = [
+                # k, exp, c,  se,     nl,  s,
+                [3, 8,  8,  True,  'RE', 2],
+                [3, 36,  12,  False, 'RE', 2],
+                [3, 44,  12,  False, 'RE', 1],
+                [5, 48,  20,  True,  'HS', 2],
+                # [3, 16,  16,  True,  'RE', 2],
+                # [3, 72,  24,  False, 'RE', 2],
+                # [3, 88,  24,  False, 'RE', 1],
+                # [5, 96,  40,  True,  'HS', 2],
+                # [5, 240, 40,  True,  'HS', 1],
+                # [5, 240, 40,  True,  'HS', 1],
+                # [5, 120, 48,  True,  'HS', 1],
+                # [5, 144, 48,  True,  'HS', 1],
+                # [5, 288, 96,  True,  'HS', 2],
+                # [5, 576, 96,  True,  'HS', 1],
+                # [5, 576, 96,  True,  'HS', 1],
+            ]
+        else:
+            raise NotImplementedError
+
+        # building first layer
+        assert input_size % 32 == 0
+        last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
+        self.features = [conv_bn(1, input_channel, 2, norm_layer=norm_layer, nlin_layer=Hswish)]
+
+        # Dropout
+        self.features.append(nn.Dropout3d(self.dropout_rates['input']))
+        #self.classifier = []
+
+        # building mobile blocks
+        for k, exp, c, se, nl, s in mobile_setting:
+            output_channel = make_divisible(c * width_mult)
+            exp_channel = make_divisible(exp * width_mult)
+            # Dropout after bottleneck blocks
+            self.features.append(MobileBottleneck(input_channel, output_channel, k, s, exp_channel, se, nl, drop_rate=self.dropout_rates['mobilev3'], norm_layer=norm_layer, nlin_layer=nlin_layer))
+            input_channel = output_channel
+
+        # building last several layers
+        if mode == 'large':
+            last_conv = make_divisible(960 * width_mult)
+            self.features.append(conv_1x1x1_bn(input_channel, last_conv, norm_layer=norm_layer,nlin_layer=Hswish))
+            self.features.append(nn.AdaptiveAvgPool3d(1))
+            self.features.append(nn.Conv3d(last_conv, last_channel, 1, 1, 0))
+            self.features.append(Hswish(inplace=True))
+        elif mode == 'small':
+            last_conv = make_divisible(576 * width_mult)
+            self.features.append(conv_1x1x1_bn(input_channel, last_conv, norm_layer=norm_layer, nlin_layer=Hswish))
+            # self.features.append(SEModule(last_conv))  # refer to paper Table2, but I think this is a mistake
+            self.features.append(nn.AdaptiveAvgPool3d(1))
+            self.features.append(nn.Conv3d(last_conv, last_channel, 1, 1, 0))
+            self.features.append(Hswish(inplace=True))
+        elif mode == 'mini':
+            last_conv = make_divisible(48 * width_mult)
+            self.features.append(conv_1x1x1_bn(input_channel, last_conv, norm_layer=norm_layer, nlin_layer=Hswish))
+            # self.features.append(SEModule(last_conv))  # refer to paper Table2, but I think this is a mistake
+            self.features.append(nn.AdaptiveAvgPool3d(1))
+            self.features.append(nn.Conv3d(last_conv, last_channel, 1, 1, 0))
+            self.features.append(Hswish(inplace=True))
+
+
+        else:
+            raise NotImplementedError
+
+        # make it nn.Sequential
+        self.features = nn.Sequential(*self.features)
+
+        # building classifier
+        # self.classifier = nn.Sequential(
+        #     nn.Dropout(p=dropout),    # refer to paper section 6
+        #     nn.Linear(last_channel, n_class),
+        # )
+
+        self._initialize_weights()
+
+    def forward(self, x):
+        x = self.features(x)
+        # x = x.mean(3).mean(2)
+        # x = self.classifier(x)
+        return x
+
+    def _initialize_weights(self):
+        # weight initialization
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm3d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+class MobileNet_v3_Transformer_finetune(BaseModel):
+    def __init__(self,dim,**kwargs):
+        super(MobileNet_v3_Transformer_finetune, self).__init__()
+        self.task = kwargs.get('fine_tune_task')
+        self.register_vars(**kwargs)
+        
+        # ENCODING
+        self.encoder = MobileNetV3(**kwargs).to(memory_format=torch.channels_last_3d)
+        #self.determine_shapes(self.encoder, dim)
+        #kwargs['shapes'] = self.shapes
+        # BottleNeck into bert
+        #self.into_bert = BottleNeck_in(**kwargs).to(memory_format=torch.channels_last_3d)
+
+        # transformer
+        self.transformer = Transformer_Block(self.BertConfig,**kwargs).to(memory_format=torch.channels_last_3d)
+        # finetune classifier
+        #if kwargs.get('fine_tune_task') == 'regression':
+        #    self.final_activation_func = nn.LeakyReLU()
+        #elif kwargs.get('fine_tune_task') == 'binary_classification':
+        #    self.final_activation_func = nn.Sigmoid()
+        #    self.label_num = 1
+        #self.regression_head = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.label_num),self.final_activation_func).to(memory_format=torch.channels_last_3d)
+        self.regression_head = nn.Sequential(nn.Linear(self.BertConfig.hidden_size, self.label_num)).to(memory_format=torch.channels_last_3d)
+
+    def forward(self, x):
+        batch_size, inChannels, W, H, D, T = x.shape
+        x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, inChannels, W, H, D)
+
+        # changed from NCHDW to NHWDC format for accellerating
+        x = x.contiguous(memory_format=torch.channels_last_3d)
+        encoded = self.encoder(x)
+        #encoded = self.into_bert(encoded)
+        encoded = encoded.reshape(batch_size, T, -1)
+        torch.cuda.nvtx.range_push("transformers")
+        transformer_dict = self.transformer(encoded)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("regression head")
+        CLS = transformer_dict['cls']
+        prediction = self.regression_head(CLS)
+        torch.cuda.nvtx.range_pop()
+        return {self.task:prediction}
+

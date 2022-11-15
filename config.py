@@ -1,5 +1,6 @@
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from modules.data_preprocess_and_load.data_module3 import fMRIDataModule
+import os
 
 def get_arguments(base_path):
     """
@@ -10,11 +11,15 @@ def get_arguments(base_path):
     parser = ArgumentParser(add_help=False, formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('--exp_name', type=str,default="baseline") 
     parser.add_argument('--base_path', default=base_path)
+
+    parser.add_argument('--block_type', default='green', choices=['MobileNet_v2','MobileNet_v3','green'])
     parser.add_argument('--step', default='1', choices=['1','2','3','4'], help='which step you want to run')
-    
     parser.add_argument('--cuda', default=True)
     parser.add_argument('--log_dir', type=str, default=os.path.join(base_path, 'runs'))
     
+    # optuna related 
+    parser.add_argument('--use_optuna', action='store_true', help='use optuna hyperparameter tuning.')
+    parser.add_argument('--num_trials', default=10, help='how many trials')
     
     # parser.add_argument('--random_TR', action='store_false') #True면(인자를 넣어주지 않으면) 전체 sequence 로부터 random sampling(default). False면 (--random_TR 인자를 넣어주면) 0번째 TR부터 sliding window
     
@@ -39,7 +44,7 @@ def get_arguments(base_path):
                         help='local rank for distributed training')
     parser.add_argument('--dist_backend', default='nccl', type=str, 
                         help='distributed backend')
-    parser.add_argument('--init_method', default='file', type=str, choices=['file','env'], help='DDP init method')
+    parser.add_argument('--init_method', default='env', type=str, choices=['file','env'], help='DDP init method')
     
 
     # AMP configs:
@@ -72,7 +77,7 @@ def get_arguments(base_path):
     parser.add_argument('--task_phase2', type=str, default='transformer_reconstruction')
     parser.add_argument('--batch_size_phase2', type=int, default=4) #원래는 1이었음
     parser.add_argument('--validation_frequency_phase2', type=int, default=10000000) # 11 for test original: 10000) #원래는 500이었음
-    parser.add_argument('--optim_phase2', default='Adam')
+    parser.add_argument('--optim_phase2', default='AdamW')
     parser.add_argument('--nEpochs_phase2', type=int, default=20)
     parser.add_argument('--augment_prob_phase2', default=0)
     parser.add_argument('--weight_decay_phase2', default=1e-7)
@@ -104,6 +109,8 @@ def get_arguments(base_path):
     parser.add_argument('--task_phase4', type=str, default='test')
     parser.add_argument('--model_weights_path_phase3', default=None)
     parser.add_argument('--batch_size_phase4', type=int, default=4)
+
+    # we do not use variables below
     parser.add_argument('--nEpochs_phase4', type=int, default=20)
     parser.add_argument('--augment_prob_phase4', default=0)
     parser.add_argument('--optim_phase4', default='Adam')
@@ -112,7 +119,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_init_phase4', type=float, default=1e-4)
     parser.add_argument('--lr_gamma_phase4', type=float, default=0.9)
     parser.add_argument('--lr_step_phase4', type=int, default=1500)
-    parser.add_argument('--lr_warmup_phase4', type=int, default=100)
+    parser.add_argument('--lr_warmup_phase4', type=int, default=500)
     
     temp_args, _ = parser.parse_known_args()
     
