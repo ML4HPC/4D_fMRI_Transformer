@@ -1,0 +1,45 @@
+#!/bin/sh
+#PBS -l select=10:system=polaris
+#PBS -l place=scatter
+#PBS -l walltime=2:00:00
+#PBS -l filesystems=home:grand
+#PBS -q prod
+#PBS -A STlearn
+#PBS -j oe
+
+export MPICH_GPU_SUPPORT_ENABLED=1
+export NCCL_COLLNET_ENABLE=1
+export NCCL_NET_GDR_LEVEL=PHB
+
+# mpiexec for multi-node, which is slower than torchrun in one node
+module load conda
+conda activate 3DCNN # activate conda 
+
+# change directory where the qsub was executed.
+#cd $PBS_O_WORKDIR
+
+#change directory to 4D_Transformer
+cd /lus/grand/projects/STlearn/4D_fMRI_Transformer/
+
+export MASTER_ADDR=`/bin/hostname -s`
+NNODES=`wc -l < $PBS_NODEFILE`
+NRANKS_PER_NODE=$(nvidia-smi -L | wc -l)
+NTOTRANKS=$(( NNODES * NRANKS_PER_NODE ))
+echo "NUM_OF_NODES= ${NNODES} TOTAL_NUM_RANKS= ${NTOTRANKS} RANKS_PER_NODE= ${NRANKS_PER_NODE}"
+
+NDEPTH=16
+# NTHREADS=8
+
+#-n ${NTOTRANKS} : This is specifying the total number of MPI ranks to start.
+#--ppn ${NRANKS_PER_NODE} : This is specifying the number of MPI ranks to start on each node.
+#--depth=${NDEPTH} : This is specifying how many cores/threads to space MPI ranks apart on each node.
+#--cpu bind depth : This is indicating the number of cores/threads will be bound to MPI ranks based on the depth argument.
+#--env OMP_NUM_THREADS=${NTHREADS} : This is setting the environment variable OMP_NUM_THREADS : to determine the number of OpenMP threads per MPI rank.
+#--env OMP_PLACES=threads : This is indicating how OpenMP should distribute threads across the resource, in this case across hardware threads.
+ 
+set_affinity_cmd="./scripts/polaris/set_affinity_gpu_polaris.sh"
+Command="python main.py --step 3  --use_optuna --exp_name prod_from_scratch_optuna_lrwd --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs --dataset_split_num 1"
+
+mpiexec -n ${NTOTRANKS} --ppn ${NRANKS_PER_NODE} --depth=${NDEPTH} --cpu-bind depth $set_affinity_cmd $Command
+
+

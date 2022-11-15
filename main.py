@@ -71,8 +71,11 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
         #TF_HL = [4,8,16]
         #TF_AH = [4,8,16]
         #SL = [8,16,20,32]
-        Validation_Frequency = 1000
-        NUM_EPOCHS = 1 # reduce epoch for enough trials
+        Validation_Frequency = 69
+        # HCP : int(44700(# of samples) / (int(kwargs.get('batch_size')) * args.world_size)) 
+        # 69 for batch size 16 and world size 40
+        # same as iteration
+        NUM_EPOCHS = 3 # each trial undergo 3 epochs
         is_classification = kwargs.get('fine_tune_task') == 'binary_classification'
 
         def objective(single_trial: optuna.Trial): 
@@ -124,6 +127,9 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
                     objective(None)
                 except optuna.TrialPruned:
                     pass
+        
+        # with DDP, each process (ranks) undergo 'NUM_TRIALS' trails
+        # so, total NUM_TRIALS * world_size would be run (20 * 40 = 800)
 
         if args.rank == 0:
             assert study is not None

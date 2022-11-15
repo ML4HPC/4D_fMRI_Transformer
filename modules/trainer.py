@@ -211,14 +211,22 @@ class Trainer():
             start = time.time()
             self.train_epoch(epoch)
             if (not self.distributed) or self.rank == 0 :
-                if not self.use_optuna:
-                    self.eval_epoch('val')
-                    print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs))
-                    # print losses
-                    self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
-                    self.writer.accuracy_summary(mid_epoch=True)
-                    self.writer.save_history_to_csv()
+                self.eval_epoch('val')
+                print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs))
+                # print losses
+                self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
+                self.writer.accuracy_summary(mid_epoch=True)
+                self.writer.save_history_to_csv()
+                if self.use_optuna:
+                    val_AUROC = self.get_last_AUROC()
+                    if val_AUROC > self.best_AUROC:
+                        self.best_AUROC = val_AUROC
+                    self.trial.report(val_AUROC, step=epoch)
+                    if self.trial.should_prune():
+                        raise optuna.exceptions.TrialPruned()
+                else:
                     self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
+                    
             # else:
             #     dist.barrier()
             end = time.time()
@@ -296,33 +304,35 @@ class Trainer():
                     break
 
             # use batch-validation only for Optuna tuning 
-            if (batch_idx + 1) % self.validation_frequency == 0:
-                step = ((batch_idx + 1) // self.validation_frequency)-1 # start from 0
-                print(f'optuna: evaluating at epoch {epoch} batch {batch_idx}')
-                if (not self.distributed) or self.rank == 0 :
-                    ### validation ##
-                    self.eval_epoch('val')
-                    self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
-                    self.writer.accuracy_summary(mid_epoch=True)
-                    self.writer.experiment_title = self.writer.experiment_title
-                    self.writer.save_history_to_csv()
-                    if not self.use_optuna:
-                        self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
-                    # val_loss = self.get_last_loss()
-                    val_AUROC = self.get_last_AUROC()
+            # if self.use_optuna:
+            #     if (self.eval_iter + 1) % self.validation_frequency == 0:
+            #         step = ((batch_idx + 1) // self.validation_frequency)-1 # start from 0
+            #         print(f'optuna: evaluating at epoch {epoch} batch {batch_idx}')
+            #         if (not self.distributed) or self.rank == 0 :
+            #             ### validation ##
+            #             self.eval_epoch('val')
+            #             self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
+            #             self.writer.accuracy_summary(mid_epoch=True)
+            #             self.writer.experiment_title = self.writer.experiment_title
+            #             self.writer.save_history_to_csv()
+            #             if not self.use_optuna:
+            #                 self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
+            #             # val_loss = self.get_last_loss()
+            #             val_AUROC = self.get_last_AUROC()
 
-                    if val_AUROC > self.best_AUROC:
-                        self.best_AUROC = val_AUROC
-                    
-                    # report current performances
-                    self.trial.report(val_AUROC, step=step)
+            #             if val_AUROC > self.best_AUROC:
+            #                 self.best_AUROC = val_AUROC
+                        
+            #             # report current performances
+            #             self.trial.report(val_AUROC, step=step)
 
-                    if self.trial.should_prune():
-                        raise optuna.exceptions.TrialPruned()
-        
-                    self.train()
-                # else:
-                #     dist.barrier()
+            #             if self.trial.should_prune():
+            #                 raise optuna.exceptions.TrialPruned()
+            
+            #             self.train()
+            #         # else:
+            #         #     dist.barrier()
+            # self.eval_iter += 1
                 
     def eval_epoch(self,set):
         loader = self.val_loader if set == 'val' else self.test_loader
