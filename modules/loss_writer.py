@@ -10,7 +10,7 @@ from .metrics import Metrics
 
 class Writer():
     """
-    main class to handle logging the results, both to tensorboard and to a local csv file # so where is csv file..^^?
+    main class to handle logging the results, both to tensorboard and to a local csv file
     """
     def __init__(self,sets,**kwargs):
         self.register_args(**kwargs)
@@ -29,13 +29,13 @@ class Writer():
             if loss_dict['is_active']:
                 for set in sets:
                     setattr(self, '{}_{}_loss_values'.format(name,set),[])
-                    setattr(self, '{}_{}_loss_history'.format(name,set),[])
+                    setattr(self, '{}_{}_loss_history'.format(name,set),[]) # self.total_val_loss_history = []
 
     def create_score_folders(self):
         self.tensorboard_dir = Path(os.path.join(self.log_dir, self.experiment_title))
         self.csv_path = os.path.join(self.experiment_folder, 'history')
         os.makedirs(self.csv_path, exist_ok=True)
-        if self.task == 'fine_tune':
+        if self.task in ['fine_tune', 'test']:
             self.per_subject_predictions = os.path.join(self.experiment_folder, 'per_subject_predictions')
             os.makedirs(self.per_subject_predictions, exist_ok=True)
 
@@ -48,15 +48,15 @@ class Writer():
             wr.writerow(column_names)
             wr.writerows(export_data)
 
-
     def loss_summary(self,lr):
         self.scalar_to_tensorboard('learning_rate',lr,self.total_train_steps)
-        loss_d = self.append_total_to_losses()
+        loss_d = self.append_total_to_losses() # where are you?
         for name, loss_dict in loss_d.items():
+            # name : perceptual, reconstruction, ...
             if loss_dict['is_active']:
                 for set in self.sets:
                     title = name + '_' + set
-                    values = getattr(self,title + '_loss_values')
+                    values = getattr(self,title + '_loss_values') # in list
                     if len(values) == 0:
                         continue
                     score = np.mean(values)
@@ -87,12 +87,15 @@ class Writer():
                 metrics[name + '_MSE'] = self.metrics.MSE(truth,pred)
                 metrics[name +'_NMSE'] = self.metrics.NMSE(truth,pred)
             else:
+                # pred should be a probability-like numbers, not logits (using sigmoid function)
+                pred = (1/(1+np.exp(-np.array(pred)))).tolist()
+                # print('sigmoid_applied preds:',pred) # 여기서 0.5를 threshold로 대체할 것.
                 metrics[name + '_Balanced_Accuracy'] = self.metrics.BAC(truth,[x>0.5 for x in pred])
                 metrics[name + '_Regular_Accuracy'] = self.metrics.RAC(truth,[x>0.5 for x in pred])
                 metrics[name + '_AUROC'] = self.metrics.AUROC(truth,pred)
 
         for name,value in metrics.items():
-            self.scalar_to_tensorboard(name,value) #여기서 tf events 파일이 오는구나?^^
+            self.scalar_to_tensorboard(name,value) #여기서 tf events 파일이 옴
             if hasattr(self,name):
                 l = getattr(self,name)
                 l.append(value)
@@ -146,11 +149,12 @@ class Writer():
             if 'tran' in kwargs.get('task').lower() and kwargs.get('use_mask_loss'):
                 self.losses['mask']['is_active'] = True
             
-        elif kwargs.get('task').lower() == 'fine_tune' or 'test':
+        elif kwargs.get('task').lower() in ['fine_tune', 'test']:
             if kwargs.get('fine_tune_task').lower() == 'regression':
                 self.losses['regression']['is_active'] = True
             else:
                 self.losses['binary_classification']['is_active'] = True
+        #print('self.losses in register_losses function in loss_writer.py: ', self.losses) # it works
 
     def append_total_to_losses(self):
         loss_d = self.losses.copy()
