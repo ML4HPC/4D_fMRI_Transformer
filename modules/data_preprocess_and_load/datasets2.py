@@ -107,15 +107,36 @@ class S1200(BaseDataset):
 
         img_root = os.path.join(root, 'img')
         subject_list = os.listdir(img_root)
+
+        # Stella modified z-scoring part of the dataset2.py
+        age_whole = self.meta_data_residual[['subject', 'age']].dropna(axis=0)
+        cont_mean = age_whole['age'].mean()
+        cont_std = age_whole['age'].std()
+
         for i, subject in enumerate(subject_list):
             try:
                 age = torch.tensor(
-                    self.meta_data_residual[self.meta_data_residual["subject"] == int(subject)]["age"].values[0]
+                    (self.meta_data_residual[self.meta_data_residual["subject"] == int(subject)]["age"].values[0] - cont_mean)/cont_std
                 )
             except Exception:
                 # deal with discrepency that a few subjects don't have exact age, so we take the mean of the age range as the exact age proxy
                 age = self.meta_data[self.meta_data["Subject"] == int(subject)]["Age"].values[0]
-                age = torch.tensor([float(x) for x in age.replace("+", "-").split("-")]).mean()
+                age = np.array([float(x) for x in age.replace("+", "-").split("-")]).mean() # e.g. 22-25 -> 23.5
+                age = torch.tensor(
+                    (age-cont_mean)/cont_std
+                )
+
+        # for i, subject in enumerate(subject_list):
+        #     try:
+        #         age = torch.tensor(
+        #             self.meta_data_residual[self.meta_data_residual["subject"] == int(subject)]["age"].values[0]
+        #         )
+        #     except Exception:
+        #         # deal with discrepency that a few subjects don't have exact age, so we take the mean of the age range as the exact age proxy
+        #         age = self.meta_data[self.meta_data["Subject"] == int(subject)]["Age"].values[0]
+        #         age = torch.tensor([float(x) for x in age.replace("+", "-").split("-")]).mean() # e.g. 22-25 -> 23.5
+                
+
 
             # age = torch.tensor(self.meta_data_residual[self.meta_data_residual["subject"] == int(subject)]["age"].values[0])
             sex = self.meta_data[self.meta_data["Subject"] == int(subject)]["Gender"].values[0]
@@ -187,13 +208,20 @@ class ABCD(BaseDataset):
         meta_task = self.meta_data[['subjectkey',task_name]].dropna()
         non_na_subjects = meta_task['subjectkey'].values
         subject_list = [subj for subj in subject_list if subj[4:] in non_na_subjects]
+        
+        if self.target == 'age':
+            cont_mean = np.array(meta_task[task_name]).mean()
+            cont_std = np.array(meta_task[task_name]).std()
 
         for i, subject in enumerate(subject_list):
             subject_name = subject[4:]
 
             #if subject_name in meta_task['subjectkey'].values:
-            target = meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0]
-
+            if self.target == 'age':
+                target = (meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0] - cont_mean)/cont_std
+            else:
+                target = meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0]
+            target = torch.tensor(target).type(torch.float) # Stella added this
             subject_path = os.path.join(img_root, subject)
 
             num_frames = len(os.listdir(subject_path)) - 2 # voxel mean & std
