@@ -242,7 +242,7 @@ class Trainer():
         self.train()
 
         times = []
-        for batch_idx, input_dict in enumerate(tqdm(self.train_loader,position=0,leave=not self.use_optuna)): 
+        for batch_idx, input_dict in enumerate(tqdm(self.train_loader,position=0,leave=True)): 
             ### training ###
             #start_time = time.time()
             torch.cuda.nvtx.range_push("training steps")
@@ -254,6 +254,8 @@ class Trainer():
                     loss_dict, loss = self.forward_pass(input_dict)
                 torch.cuda.nvtx.range_pop()
                 loss = loss / self.accumulation_steps # gradient accumulation
+                #loss = loss.type(torch.float) # Stella added this for age regression
+                #print('loss is: ', loss.type())
                 torch.cuda.nvtx.range_push("backward pass")
                 self.scaler.scale(loss).backward()
                 torch.cuda.nvtx.range_pop()

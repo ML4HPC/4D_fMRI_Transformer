@@ -71,7 +71,7 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
         #TF_HL = [4,8,16]
         #TF_AH = [4,8,16]
         #SL = [8,16,20,32]
-        Validation_Frequency = 69
+        #Validation_Frequency = 69
         # HCP : int(44700(# of samples) / (int(kwargs.get('batch_size')) * args.world_size)) 
         # 69 for batch size 16 and world size 40
         # same as iteration
@@ -81,12 +81,12 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
         def objective(single_trial: optuna.Trial): 
             # https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_distributed_simple.py
             trial = optuna.integration.pytorch_distributed.TorchDistributedTrial(single_trial, device=torch.device(args.gpu))
-
+            #trial = single_trial
 
             trial_kwargs = deepcopy(kwargs)
             # validate the performance per 500 iteration
             trial_kwargs['optim'] = 'Adam'
-            trial_kwargs['validation_frequency'] = Validation_Frequency 
+            #trial_kwargs['validation_frequency'] = Validation_Frequency 
             trial_kwargs['lr_init'] = trial.suggest_loguniform('lr_init', low=LR_MIN, high=LR_CEIL)
             trial_kwargs['weight_decay'] = trial.suggest_loguniform('weight_decay', low=WD_MIN, high=WD_CEIL)
             #trial_kwargs['transformer_hidden_layers'] = trial.suggest_categorical('transformer_hidden_layers', choices= TF_HL)
@@ -108,11 +108,12 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
         #                    CREATE OPTUNA STUDY
         #----------------------------------------------------------------------------------------------------
 
-        print('Triggering Optuna study')
         NUM_TRIALS = args.num_trials
         study_name = args.exp_name
+        print('NUM_TRIALS:', NUM_TRIALS)
         optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
         if args.rank == 0:
+            print('Triggering Optuna study')
             print('study_name:',study_name)
             storage=optuna.storages.RDBStorage(
             url="sqlite:///{}.db".format(study_name),
@@ -176,7 +177,7 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
 
 def test(args,phase_num,model_weights_path):
     experiment_folder = '{}_{}_{}'.format(args.dataset_name, 'test_{}'.format(args.fine_tune_task), args.exp_name) 
-    experiment_folder = Path(os.path.join(args.base_path,'tests', experiment_folder))
+    experiment_folder = Path(os.path.join(args.base_path, 'tests', experiment_folder))
     os.makedirs(experiment_folder,exist_ok=True)
     setattr(args,'loaded_model_weights_path_phase' + phase_num, model_weights_path) 
     
