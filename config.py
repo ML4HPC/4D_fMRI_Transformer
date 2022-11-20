@@ -19,7 +19,7 @@ def get_arguments(base_path):
     
     # optuna related 
     parser.add_argument('--use_optuna', action='store_true', help='use optuna hyperparameter tuning.')
-    parser.add_argument('--num_trials', default=10, help='how many trials')
+    parser.add_argument('--num_trials', default=2, help='how many trials')
     
     # parser.add_argument('--random_TR', action='store_false') #True면(인자를 넣어주지 않으면) 전체 sequence 로부터 random sampling(default). False면 (--random_TR 인자를 넣어주면) 0번째 TR부터 sliding window
     

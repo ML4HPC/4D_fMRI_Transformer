@@ -71,7 +71,7 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
         #TF_HL = [4,8,16]
         #TF_AH = [4,8,16]
         #SL = [8,16,20,32]
-        Validation_Frequency = 69
+        #Validation_Frequency = 69
         # HCP : int(44700(# of samples) / (int(kwargs.get('batch_size')) * args.world_size)) 
         # 69 for batch size 16 and world size 40
         # same as iteration
@@ -80,13 +80,17 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
 
         def objective(single_trial: optuna.Trial): 
             # https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_distributed_simple.py
-            trial = optuna.integration.pytorch_distributed.TorchDistributedTrial(single_trial, device=torch.device(args.gpu))
+            rank = dist.get_rank()
+            device = torch.device(int(os.environ["LOCAL_RANK"]))
+            device_ids = [int(os.environ["LOCAL_RANK"])]
+
+            trial = optuna.integration.pytorch_distributed.TorchDistributedTrial(single_trial, device=device)
 
 
             trial_kwargs = deepcopy(kwargs)
             # validate the performance per 500 iteration
             trial_kwargs['optim'] = 'Adam'
-            trial_kwargs['validation_frequency'] = Validation_Frequency 
+            #trial_kwargs['validation_frequency'] = Validation_Frequency 
             trial_kwargs['lr_init'] = trial.suggest_loguniform('lr_init', low=LR_MIN, high=LR_CEIL)
             trial_kwargs['weight_decay'] = trial.suggest_loguniform('weight_decay', low=WD_MIN, high=WD_CEIL)
             #trial_kwargs['transformer_hidden_layers'] = trial.suggest_categorical('transformer_hidden_layers', choices= TF_HL)
@@ -94,8 +98,7 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
             #trial_kwargs['sequence_length'] = trial.suggest_categorical('sequence_length', choices=SL)
             trial_kwargs['nEpochs'] = NUM_EPOCHS
             trial_kwargs['trial'] = trial
-
-            
+    
             trainer = Trainer(sets=S,**trial_kwargs)
 
             # classification
@@ -115,8 +118,7 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
         if args.rank == 0:
             print('study_name:',study_name)
             storage=optuna.storages.RDBStorage(
-            url="sqlite:///{}.db".format(study_name),
-            engine_kwargs={ "connect_args": {"timeout": 10}},
+            url='postgresql://junbeom_admin:DBcase6974!@nerscdb03.nersc.gov/junbeom', #"sqlite:///{}.db".format(study_name),
             skip_compatibility_check=True
             )
             study = optuna.create_study(study_name=study_name, sampler=optuna.samplers.RandomSampler(), pruner = optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=5, interval_steps=1) ,storage=storage, load_if_exists=True, direction='maximize' if is_classification else 'minimize') 
@@ -215,7 +217,7 @@ if __name__ == '__main__':
         print(f'finishing phase{step}: {task}')
 
         # after finishing step3(classification/regression), run test.
-        if step == '3':
+        if step == '3' and (not args.use_optuna):
             print(f'starting testing')
             test(args, '4', model_weights_path) 
             print(f'finishing testing')

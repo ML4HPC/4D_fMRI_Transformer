@@ -47,6 +47,8 @@ class Trainer():
         #self.best_accuracy = 0
         self.best_AUROC = 0
         self.st_epoch = 1
+        self.recent_pth = None
+        self.state_dict = None
         
         self.lr_handler = LrHandler(**kwargs)
         # self.train_loader, self.val_loader, self.test_loader = DataHandler(**kwargs).create_dataloaders()
@@ -60,7 +62,8 @@ class Trainer():
         
         
         self.create_model() # model on cpu
-        self.load_model_checkpoint()
+        if not self.use_optuna:
+            self.load_model_checkpoint()
         self.set_model_device() # set DDP or DP after loading checkpoint at CPUs
         
         self.create_optimizer()
@@ -210,22 +213,23 @@ class Trainer():
         for epoch in range(self.st_epoch,self.nEpochs + 1): 
             start = time.time()
             self.train_epoch(epoch)
-            if (not self.distributed) or self.rank == 0 :
-                self.eval_epoch('val')
-                print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs))
-                # print losses
-                self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
-                self.writer.accuracy_summary(mid_epoch=True)
-                self.writer.save_history_to_csv()
-                if self.use_optuna:
-                    val_AUROC = self.get_last_AUROC()
-                    if val_AUROC > self.best_AUROC:
-                        self.best_AUROC = val_AUROC
-                    self.trial.report(val_AUROC, step=epoch)
-                    if self.trial.should_prune():
-                        raise optuna.exceptions.TrialPruned()
-                else:
-                    self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
+            # if (not self.distributed) or self.rank == 0 :
+            self.eval_epoch('val')
+            
+            print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs))
+            # print losses
+            self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
+            self.writer.accuracy_summary(mid_epoch=True)
+            self.writer.save_history_to_csv()
+            if self.use_optuna:
+                val_AUROC = self.get_last_AUROC()
+                if val_AUROC > self.best_AUROC:
+                    self.best_AUROC = val_AUROC
+                self.trial.report(val_AUROC, step=epoch-1)
+                if self.trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
+                # else:
+                #     self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
                     
             # else:
             #     dist.barrier()
@@ -288,8 +292,17 @@ class Trainer():
                 self.optimizer.step()
                 torch.cuda.nvtx.range_pop()
                 self.lr_handler.schedule_check_and_update(self.optimizer)
-
+            
+            
             # register losses
+            # synchronize the performances in multiple nodes
+            if self.use_optuna:
+                for loss_type, value in loss_dict.items():
+                    loss_tensor = torch.tensor([value], dtype=torch.float).to(self.gpu)
+                    dist.all_reduce(loss_tensor)
+                    losses_sum = loss_tensor.item()
+                    loss_dict[loss_type] = losses_sum / self.world_size
+                
             self.writer.write_losses(loss_dict, set='train')
             
             #end_time = time.time()
@@ -302,37 +315,38 @@ class Trainer():
             if self.profiling == True:
                 if batch_idx == 10 : 
                     break
+            '''
+            use batch-validation only for Optuna tuning 
+            if self.use_optuna:
+                if (self.eval_iter + 1) % self.validation_frequency == 0:
+                    step = ((batch_idx + 1) // self.validation_frequency)-1 # start from 0
+                    print(f'optuna: evaluating at epoch {epoch} batch {batch_idx}')
+                    if (not self.distributed) or self.rank == 0 :
+                        ### validation ##
+                        self.eval_epoch('val')
+                        self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
+                        self.writer.accuracy_summary(mid_epoch=True)
+                        self.writer.experiment_title = self.writer.experiment_title
+                        self.writer.save_history_to_csv()
+                        if not self.use_optuna:
+                            self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
+                        # val_loss = self.get_last_loss()
+                        val_AUROC = self.get_last_AUROC()
 
-            # use batch-validation only for Optuna tuning 
-            # if self.use_optuna:
-            #     if (self.eval_iter + 1) % self.validation_frequency == 0:
-            #         step = ((batch_idx + 1) // self.validation_frequency)-1 # start from 0
-            #         print(f'optuna: evaluating at epoch {epoch} batch {batch_idx}')
-            #         if (not self.distributed) or self.rank == 0 :
-            #             ### validation ##
-            #             self.eval_epoch('val')
-            #             self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
-            #             self.writer.accuracy_summary(mid_epoch=True)
-            #             self.writer.experiment_title = self.writer.experiment_title
-            #             self.writer.save_history_to_csv()
-            #             if not self.use_optuna:
-            #                 self.save_checkpoint_(epoch, batch_idx, self.scaler) # validation마다 checkpoint 저장               
-            #             # val_loss = self.get_last_loss()
-            #             val_AUROC = self.get_last_AUROC()
-
-            #             if val_AUROC > self.best_AUROC:
-            #                 self.best_AUROC = val_AUROC
+                        if val_AUROC > self.best_AUROC:
+                            self.best_AUROC = val_AUROC
                         
-            #             # report current performances
-            #             self.trial.report(val_AUROC, step=step)
+                        # report current performances
+                        self.trial.report(val_AUROC, step=step)
 
-            #             if self.trial.should_prune():
-            #                 raise optuna.exceptions.TrialPruned()
+                        if self.trial.should_prune():
+                            raise optuna.exceptions.TrialPruned()
             
-            #             self.train()
-            #         # else:
-            #         #     dist.barrier()
-            # self.eval_iter += 1
+                        self.train()
+                    # else:
+                    #     dist.barrier()
+            self.eval_iter += 1
+            '''
                 
     def eval_epoch(self,set):
         loader = self.val_loader if set == 'val' else self.test_loader
@@ -341,7 +355,17 @@ class Trainer():
             for batch_idx, input_dict in enumerate(tqdm(loader, position=0, leave=True)):
                 with autocast():
                     loss_dict, _ = self.forward_pass(input_dict)
+                    
                 # register losses
+                
+                # synchronize the performances in multiple nodes
+                if self.use_optuna:
+                    for loss_type, value in loss_dict.items():
+                        loss_tensor = torch.tensor([value], dtype=torch.float).to(self.gpu)
+                        dist.all_reduce(loss_tensor)
+                        losses_sum = loss_tensor.item()
+                        loss_dict[loss_type] = losses_sum / self.world_size
+                
                 self.writer.write_losses(loss_dict, set=set)
                 if self.profiling == True:
                     if batch_idx == 10 : 
