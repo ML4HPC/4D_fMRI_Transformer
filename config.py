@@ -19,11 +19,8 @@ def get_arguments(base_path):
     
     # optuna related 
     parser.add_argument('--use_optuna', action='store_true', help='use optuna hyperparameter tuning.')
-<<<<<<< HEAD
-    parser.add_argument('--num_trials', default=5, help='how many trials')
-=======
+
     parser.add_argument('--num_trials', default=2, help='how many trials')
->>>>>>> 8951921f7bf6270d9224b037c15ce5cdc8d23e6d
     
     # parser.add_argument('--random_TR', action='store_false') #True면(인자를 넣어주지 않으면) 전체 sequence 로부터 random sampling(default). False면 (--random_TR 인자를 넣어주면) 0번째 TR부터 sliding window
     
@@ -38,6 +35,7 @@ def get_arguments(base_path):
     parser.add_argument('--transformer_num_attention_heads',type=int, default=16)
     parser.add_argument('--transformer_emb_size',type=int ,default=2640)
     parser.add_argument('--running_mean_size', default=5000)
+    parser.add_argument('--return_value', default=False)
     
     # DDP configs:
     parser.add_argument('--world_size', default=-1, type=int, 
@@ -49,7 +47,7 @@ def get_arguments(base_path):
     parser.add_argument('--dist_backend', default='nccl', type=str, 
                         help='distributed backend')
     parser.add_argument('--init_method', default='env', type=str, choices=['file','env'], help='DDP init method')
-    
+    parser.add_argument('--distributed', default=False)
 
     # AMP configs:
     parser.add_argument('--amp', action='store_false')
@@ -76,6 +74,7 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase1', type=float, default=0.97)
     parser.add_argument('--lr_step_phase1', type=int, default=500)
     parser.add_argument('--lr_warmup_phase1', type=int, default=500)
+    parser.add_argument('--lr_T_mult_phase1', type=int, default=2)
 
     ##phase 2
     parser.add_argument('--task_phase2', type=str, default='transformer_reconstruction')
@@ -90,13 +89,14 @@ def get_arguments(base_path):
     parser.add_argument('--lr_gamma_phase2', type=float, default=0.97)
     parser.add_argument('--lr_step_phase2', type=int, default=1000)
     parser.add_argument('--lr_warmup_phase2', type=int, default=500)
+    parser.add_argument('--lr_T_mult_phase2', type=int, default=2)
     parser.add_argument('--model_weights_path_phase1', default=None)
     parser.add_argument('--use_cont_loss', default=False)
     parser.add_argument('--use_mask_loss', default=False)
 
     ##phase 3
     parser.add_argument('--task_phase3', type=str, default='fine_tune')
-    parser.add_argument('--batch_size_phase3', type=int, default=4) #원래는 3이었음
+    parser.add_argument('--batch_size_phase3', type=int, default=4, help='batch size per gpus') #원래는 3이었음
     parser.add_argument('--validation_frequency_phase3', type=int, default=10000) # 11 for test # original: 10000) #원래는 200이었음
     parser.add_argument('--nEpochs_phase3', type=int, default=20)
     parser.add_argument('--augment_prob_phase3', default=0)
@@ -105,8 +105,9 @@ def get_arguments(base_path):
     parser.add_argument('--lr_policy_phase3', default='step', choices=['step','SGDR'], help='learning rate policy: step|SGDR')
     parser.add_argument('--lr_init_phase3', type=float, default=1e-4)
     parser.add_argument('--lr_gamma_phase3', type=float, default=0.9)
-    parser.add_argument('--lr_step_phase3', type=int, default=1500)
-    parser.add_argument('--lr_warmup_phase3', type=int, default=100)
+    parser.add_argument('--lr_step_phase3', type=int, default=1500, help = 'step size for step lr schedular, and T_0 for SGDR, 1/10 of total iterations')
+    parser.add_argument('--lr_warmup_phase3', type=int, default=100, help = '1/50 of total iterations')
+    parser.add_argument('--lr_T_mult_phase3', type=int, default=2, help = '1 or 2')
     parser.add_argument('--model_weights_path_phase2', default=None)
     
     ##phase 4 (test)
