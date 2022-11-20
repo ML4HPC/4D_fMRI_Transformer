@@ -2,11 +2,13 @@ from torch.nn import MSELoss,L1Loss,BCELoss, BCEWithLogitsLoss
 from .losses import Percept_Loss, Cont_Loss, Mask_Loss
 import csv
 import os
+import torch
 from torch.utils.tensorboard import SummaryWriter
 from pathlib import Path
 import numpy as np
 from itertools import zip_longest
 from .metrics import Metrics
+import torch.distributed as dist
 
 class Writer():
     """
@@ -74,12 +76,22 @@ class Writer():
             subj_pred = subj_dict['score'].mean().item()
             subj_error = subj_dict['score'].std().item()
             subj_truth = subj_dict['truth'].item()
-            subj_mode = subj_dict['mode']
+            subj_mode = subj_dict['mode'] # train, val, test
             with open(os.path.join(self.per_subject_predictions,'iter_{}.txt'.format(self.eval_iter)),'a+') as f:
                 f.write('subject:{} ({})\noutputs: {:.4f}\u00B1{:.4f}  -  truth: {}\n'.format(subj_name,subj_mode,subj_pred,subj_error,subj_truth))
             pred_all_sets[subj_mode].append(subj_pred)
             truth_all_sets[subj_mode].append(subj_truth)
         for (name,pred),(_,truth) in zip(pred_all_sets.items(),truth_all_sets.items()):
+            # name : train, val, test
+            # gather
+            preds = [None for _ in range(self.world_size)]
+            truths = [None for _ in range(self.world_size)]
+            dist.all_gather_object(preds,pred)
+            dist.all_gather_object(truths,truth)
+            pred = sum(preds, [])
+            truth = sum(truths, [])
+            print('len(pred)',len(pred))
+            print('len(truth)',len(truth))
             if len(pred) == 0:
                 continue
             if self.fine_tune_task == 'regression':

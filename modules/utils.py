@@ -79,13 +79,11 @@ def init_distributed(args):
         args.gpu = 0
 
     # suppress printing if not on master gpu
-    if args.use_optuna:
-        pass
-    else:
-        if args.rank!=0:
-            def print_pass(*args):
-                pass
-            builtins.print = print_pass
+
+    if args.rank!=0:
+        def print_pass(*args):
+            pass
+        builtins.print = print_pass
         
 def weight_loader(args):
     model_weights_path = None
