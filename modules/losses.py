@@ -153,7 +153,6 @@ class Cont_Loss(nn.Module):
                     #print('{} and {} cont loss is: {}'.format(a, b, loss_function)) # a랑 b가 가까우면 loss function이 작아야 함.
                     loss+=loss_function
         self.cont_loss = loss/(seq_len*(seq_len-1)*1000) #np.sum(loss_function)/len(input_1) #just for scaling
-        #print('cont loss is:', self.cont_loss)
         return self.cont_loss
 
 # contrastive loss at reconstructecd tensor level
@@ -201,9 +200,7 @@ class Mask_Loss(nn.Module):
         mask_list : masking한 index (0 ~ 19 사이 임의의 정수 3개) : torch.Size([4, 3])
         '''
         seq_len = input.shape[1]
-        #print('seq len is:', seq_len)
         batch_size = input.shape[0]
-        #print('batch size is:', batch_size)
         masked_index_size = mask_list.shape[1] # 3
         #shape of mask_list is: torch.Size([1, 3])..? 왜..? 아.... multinode... -> when slurm
         #shape of mask_list is: torch.Size([4, 3])..? -> when interactive node
