@@ -75,23 +75,26 @@ class Writer():
         for subj_name,subj_dict in self.subject_accuracy.items():
             subj_pred = subj_dict['score'].mean().item()
             subj_error = subj_dict['score'].std().item()
+            # there exists several subj_dict['score'] -> 4809개. 1개의 subject에 여러 개의 prediction을 함.
+            ## 얘네들이 만들어낸 데이터를 가지고 stacking classifier에 넣어서 학습 시킨 다음에 valid로 fit 하는 구조! sklearn 가져다 쓰기 < 내가 구현하기
             subj_truth = subj_dict['truth'].item()
             subj_mode = subj_dict['mode'] # train, val, test
             with open(os.path.join(self.per_subject_predictions,'iter_{}.txt'.format(self.eval_iter)),'a+') as f:
                 f.write('subject:{} ({})\noutputs: {:.4f}\u00B1{:.4f}  -  truth: {}\n'.format(subj_name,subj_mode,subj_pred,subj_error,subj_truth))
-            pred_all_sets[subj_mode].append(subj_pred)
+            pred_all_sets[subj_mode].append(subj_pred) # don't use std in computing AUROC, ACC
             truth_all_sets[subj_mode].append(subj_truth)
         for (name,pred),(_,truth) in zip(pred_all_sets.items(),truth_all_sets.items()):
             # name : train, val, test
             # gather
-            preds = [None for _ in range(self.world_size)]
-            truths = [None for _ in range(self.world_size)]
-            dist.all_gather_object(preds,pred)
-            dist.all_gather_object(truths,truth)
-            pred = sum(preds, [])
-            truth = sum(truths, [])
-            print('len(pred)',len(pred))
-            print('len(truth)',len(truth))
+            if self.world_size > 1:
+                preds = [None for _ in range(self.world_size)]
+                truths = [None for _ in range(self.world_size)]
+                dist.all_gather_object(preds,pred)
+                dist.all_gather_object(truths,truth)
+                pred = sum(preds, [])
+                truth = sum(truths, [])
+            # print('len(pred)',len(pred))
+            # print('len(truth)',len(truth))
             if len(pred) == 0:
                 continue
             if self.fine_tune_task == 'regression':
@@ -101,7 +104,6 @@ class Writer():
             else:
                 # pred should be a probability-like numbers, not logits (using sigmoid function)
                 pred = (1/(1+np.exp(-np.array(pred)))).tolist()
-                # print('sigmoid_applied preds:',pred) # 여기서 0.5를 threshold로 대체할 것.
                 metrics[name + '_Balanced_Accuracy'] = self.metrics.BAC(truth,[x>0.5 for x in pred])
                 metrics[name + '_Regular_Accuracy'] = self.metrics.RAC(truth,[x>0.5 for x in pred])
                 metrics[name + '_AUROC'] = self.metrics.AUROC(truth,pred)
@@ -156,6 +158,8 @@ class Writer():
             #self.losses['intensity']['is_active'] = True
             self.losses['perceptual']['is_active'] = True
             self.losses['reconstruction']['is_active'] = True
+            if kwargs.get('use_intensity_loss'):
+                self.losses['intensity']['is_active'] = True
             if 'tran' in kwargs.get('task').lower() and kwargs.get('use_cont_loss'):
                 self.losses['contrastive']['is_active'] = True
             if 'tran' in kwargs.get('task').lower() and kwargs.get('use_mask_loss'):
