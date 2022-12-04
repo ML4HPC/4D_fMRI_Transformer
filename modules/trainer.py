@@ -193,7 +193,7 @@ class Trainer():
                     self.model = torch.nn.parallel.DistributedDataParallel(self.model, device_ids=[self.gpu], broadcast_buffers=False, find_unused_parameters=True) 
                 net_without_ddp = self.model.module
             else:
-                self.device = torch.device("cuda" if self.cuda else "cpu")
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 self.model.cuda()
                 if self.task.lower() == 'autoencoder_reconstruction':
                     self.model = torch.nn.parallel.DistributedDataParallel(self.model) 
@@ -201,8 +201,8 @@ class Trainer():
                     self.model = torch.nn.parallel.DistributedDataParallel(self.model,find_unused_parameters=True) 
                 model_without_ddp = self.model.module
         else:
-            self.device = torch.device("cuda" if self.cuda else "cpu")
-            self.model = DataParallel(self.model).to(self.device)        
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.model = DataParallel(self.model).to(self.device) if torch.cuda.is_available() else self.model
             
         
 
@@ -228,8 +228,8 @@ class Trainer():
                 self.trial.report(val_AUROC, step=epoch-1)
                 if self.trial.should_prune():
                     raise optuna.exceptions.TrialPruned()
-                # else:
-                #     self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
+            else:
+                self.save_checkpoint_(epoch, len(self.train_loader), self.scaler) 
                     
             # else:
             #     dist.barrier()
@@ -258,8 +258,6 @@ class Trainer():
                     loss_dict, loss = self.forward_pass(input_dict)
                 torch.cuda.nvtx.range_pop()
                 loss = loss / self.accumulation_steps # gradient accumulation
-                #loss = loss.type(torch.float) # Stella added this for age regression
-                #print('loss is: ', loss.type())
                 torch.cuda.nvtx.range_push("backward pass")
                 self.scaler.scale(loss).backward()
                 torch.cuda.nvtx.range_pop()
@@ -297,8 +295,8 @@ class Trainer():
             
             
             # register losses
-            # synchronize the performances in multiple nodes
-            if self.use_optuna:
+            # synchronize the performances in multiple gpus
+            if self.world_size > 1:
                 for loss_type, value in loss_dict.items():
                     loss_tensor = torch.tensor([value], dtype=torch.float).to(self.gpu)
                     dist.all_reduce(loss_tensor)
@@ -361,7 +359,7 @@ class Trainer():
                 # register losses
                 
                 # synchronize the performances in multiple nodes
-                if self.use_optuna:
+                if self.world_size > 1:
                     for loss_type, value in loss_dict.items():
                         loss_tensor = torch.tensor([value], dtype=torch.float).to(self.gpu)
                         dist.all_reduce(loss_tensor)
@@ -378,6 +376,20 @@ class Trainer():
         shape of input dict is : torch.Size([batch, ch, w, h, d, t])
         '''
         input_dict = {k:(v.to(self.gpu) if (self.cuda and torch.is_tensor(v)) else v) for k,v in input_dict.items()}
+        if self.with_voxel_norm:
+            with torch.no_grad():
+                mean = input_dict['fmri_sequence'][:,:,:,:,:,-2:-1]
+                std = input_dict['fmri_sequence'][:,:,:,:,:,-1:]
+                fmri = input_dict['fmri_sequence'][:,:,:,:,:,:-2]
+
+                background_value = torch.min(fmri.flatten(start_dim=1), dim=1, keepdim=False)[0]
+                background_mask = fmri == background_value[:, None, None, None, None, None]
+                vnorm_fmri = torch.zeros_like(fmri,device=self.gpu)
+
+                vnorm_fmri[~background_mask] = ((fmri - mean) / (std + 1e-8))[~background_mask]
+                vnorm_fmri.add_(background_mask * background_value[:, None, None, None, None, None]) # inplace operation
+                
+                input_dict['fmri_sequence'] = torch.cat([fmri, vnorm_fmri], dim=1)
         output_dict = self.model(input_dict['fmri_sequence']) 
         torch.cuda.nvtx.range_push("aggregate_losses")
         loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
