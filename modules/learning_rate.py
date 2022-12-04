@@ -20,10 +20,14 @@ class LrHandler():
         self.final_lr = 1e-7
         self.epoch = kwargs.get('nEpochs')
         self.lr_policy = kwargs.get('lr_policy')
-        self.step_size = kwargs.get('lr_step')
+        if kwargs.get('world_size') > 0:
+            self.step_size = int(kwargs.get('lr_step')) # / kwargs.get('world_size'))
+        else:
+            self.step_size = kwargs.get('lr_step')
         self.base_lr = kwargs.get('lr_init')
         self.gamma = kwargs.get('lr_gamma')
         self.warmup = kwargs.get('lr_warmup')
+        self.T_mult = kwargs.get('lr_T_mult')
 
 
     def set_lr(self,dict_lr):
@@ -57,7 +61,7 @@ class LrHandler():
             # https://gaussian37.github.io/dl-pytorch-lr_scheduler/ 참고
             for param_group in optimizer.param_groups:
                 param_group['lr'] = 0 
-            scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=self.step_size, T_mult=2, eta_max=self.base_lr, T_up=self.warmup, gamma=self.gamma)
+            scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=self.step_size, T_mult=self.T_mult, eta_max=self.base_lr, T_up=self.warmup, gamma=self.gamma)
             # T_0 : 최초 주기값 (T_mult에 의해 점점 주기가 커짐)
             # T_mult : 주기가 반복되면서 최초 주기값에 비해 얼만큼 주기를 늘려나갈 것인지 스케일 값에 해당
             # eta_max : lr의 최대값 (warmup 시 eta_max까지 값이 증가)
