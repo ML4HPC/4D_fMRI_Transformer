@@ -25,7 +25,7 @@ class BaseDataset(Dataset):
         # if use_augmentations or contrastive:
         #     raise NotImplementedError()
         self.cache = img_cache
-        self.data = self._set_data(root, sequence_length)
+        self.data = self._set_data(root, sequence_length) # get list (element is tuple)
         self.with_voxel_norm = with_voxel_norm
 
     def load_sequence(self, subject_path, start_frame, session_duration):

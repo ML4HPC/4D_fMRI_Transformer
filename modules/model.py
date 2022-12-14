@@ -42,11 +42,12 @@ class BaseModel(nn.Module, ABC):
 
     def register_vars(self,**kwargs):
         intermediate_vec = kwargs.get('transformer_emb_size')
+        transformer_dropout = kwargs.get('transformer_dropout_rate')
         # Dropout rates for each layer
         if kwargs.get('task') == 'fine_tune':
-            self.dropout_rates = {'input': 0, 'green': 0.35,'mobilev3': 0.35,'Up_green': 0,'transformer':0.1}
+            self.dropout_rates = {'input': 0, 'green': 0.35,'mobilev3': 0.35,'Up_green': 0,'transformer':transformer_dropout}
         else:
-            self.dropout_rates = {'input': 0, 'green': 0.2, 'mobilev3': 0.35,'Up_green': 0.2,'transformer':0.1}
+            self.dropout_rates = {'input': 0, 'green': 0.2, 'mobilev3': 0.35,'Up_green': 0.2,'transformer':transformer_dropout}
 
         self.BertConfig = BertConfig(hidden_size=kwargs.get('transformer_emb_size'), vocab_size=1,
                                      num_hidden_layers=kwargs.get('transformer_hidden_layers'),
@@ -373,6 +374,7 @@ class Encoder_Transformer_finetune(BaseModel):
     def __init__(self,dim,**kwargs):
         super(Encoder_Transformer_finetune, self).__init__()
         self.task = kwargs.get('fine_tune_task')
+        self.return_value = kwargs.get('return_value')
         self.register_vars(**kwargs)
         # ENCODING
         self.encoder = Encoder(**kwargs).to(memory_format=torch.channels_last_3d)
@@ -395,7 +397,7 @@ class Encoder_Transformer_finetune(BaseModel):
     def forward(self, x):
         batch_size, inChannels, W, H, D, T = x.shape
         x = x.permute(0, 5, 1, 2, 3, 4).reshape(batch_size * T, inChannels, W, H, D)
-
+        # Stella will modify this part for stacking
         # changed from NCHDW to NHWDC format for accellerating
         x = x.contiguous(memory_format=torch.channels_last_3d)
         encoded = self.encoder(x)
@@ -408,7 +410,12 @@ class Encoder_Transformer_finetune(BaseModel):
         CLS = transformer_dict['cls']
         prediction = self.regression_head(CLS)
         torch.cuda.nvtx.range_pop()
-        return {self.task:prediction}
+        if self.return_value == True:
+            return prediction
+        else:
+            return {self.task:prediction}
+        
+
 
 class MobileNet_v2_Transformer_finetune(BaseModel):
     def __init__(self,dim,**kwargs):

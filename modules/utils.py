@@ -129,14 +129,15 @@ def datestamp():
 
 def reproducibility(**kwargs):
     seed = kwargs.get('seed')
+    # print('seed is fixed to:', seed) # 자꾸 None이 뜨는데..
     cuda = kwargs.get('cuda')
     random.seed(seed)
+    np.random.seed(seed)
     torch.manual_seed(seed)
     if cuda:
-        torch.cuda.manual_seed(seed)
-    np.random.seed(seed)
+        torch.cuda.manual_seed_all(seed)
     cudnn.deterministic = False #True
-    cudnn.benchmark = True
+    cudnn.benchmark = True # If true, use the best algorithm (the value can be changed by changing the algorithm)
 
 def sort_args(phase, args):
     phase_specific_args = {}

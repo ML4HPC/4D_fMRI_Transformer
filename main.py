@@ -21,6 +21,8 @@ import dill
 import logging
 import sys
 
+#import wandb
+
 # ASP
 #from apex.contrib.sparsity import ASP
 
@@ -48,7 +50,6 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     args.experiment_folder = experiment_folder
     args.experiment_title = experiment_folder.name
     
-    fine_tune_task = args.fine_tune_task
     print(f'saving the results at {args.experiment_folder}')
     
     # save hyperparameters
@@ -57,47 +58,75 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
     # make args to dict. + detach phase numbers from args
     kwargs = sort_args(phase_num, vars(args))
 
+    #wandb
+    #wandb.init(project=args.exp_name)
+    #wandb.config = kwargs
+
     S = ['train','val']
 
     if kwargs.get('use_optuna') == True:
         # referred to these links
         # https://python-bloggers.com/2022/08/hyperparameter-tuning-a-transformer-with-optuna/
-
-        LR_MIN = 1e-5
-        LR_CEIL = 1e-2
-        WD_MIN = 4e-5
-        WD_CEIL = 0.01
+        if kwargs.get('hyp_lr_init'):
+            LR_MIN = kwargs.get('hyp_lr_init_min') #1e-6
+            LR_CEIL = kwargs.get('hyp_lr_init_ceil') #1e-3
+        if kwargs.get('hyp_weight_decay'):
+            WD_MIN = kwargs.get('hyp_weight_decay_min') #1e-5
+            WD_CEIL = kwargs.get('hyp_weight_decay_ceil') #1e-2
         
-        #TF_HL = [4,8,16]
-        #TF_AH = [4,8,16]
-        #SL = [8,16,20,32]
+        if kwargs.get('hyp_transformer_hidden_layers'):
+            TF_HL_small = kwargs.get('hyp_transformer_hidden_layers_range_small') #8
+            TF_HL_big = kwargs.get('hyp_transformer_hidden_layers_range_big') #16
+            TF_HL = [TF_HL_small, TF_HL_big]
+        
+        if kwargs.get('hyp_transformer_num_attention_heads'):
+            TF_AH_small = kwargs.get('hyp_transformer_num_attention_heads_range_small') #8
+            TF_AH_big = kwargs.get('hyp_transformer_num_attention_heads_range_big') #16
+            TF_AH = [TF_AH_small, TF_AH_big]
+
+        if kwargs.get('hyp_seq_len'):    
+            SL_small = kwargs.get('hyp_seq_len_range_small') #10
+            SL_big = kwargs.get('hyp_seq_len_range_big') #20
+            SL = [SL_small, SL_big]
+
+        if kwargs.get('hyp_dropout'):    
+            DO_small = kwargs.get('hyp_dropout_range_small') #0.1
+            DO_big = kwargs.get('hyp_dropout_range_big') #0.8
+            DO = [DO_small, DO_big]
         #Validation_Frequency = 69
-        # HCP : int(44700(# of samples) / (int(kwargs.get('batch_size')) * args.world_size)) 
         # 69 for batch size 16 and world size 40
         # same as iteration
-        NUM_EPOCHS = 3 # each trial undergo 3 epochs
+        NUM_EPOCHS = kwargs.get('opt_num_epochs') # each trial undergo 'opt_num_epochs' epochs
         is_classification = kwargs.get('fine_tune_task') == 'binary_classification'
 
         def objective(single_trial: optuna.Trial): 
             # https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_distributed_simple.py
-            rank = dist.get_rank()
             device = torch.device(int(os.environ["LOCAL_RANK"]))
-            device_ids = [int(os.environ["LOCAL_RANK"])]
-
             trial = optuna.integration.pytorch_distributed.TorchDistributedTrial(single_trial, device=device)
 
+            # The code below should be changed for hyperparameter tuning
             trial_kwargs = deepcopy(kwargs)
-            # validate the performance per 500 iteration
-            trial_kwargs['optim'] = 'Adam'
-            #trial_kwargs['validation_frequency'] = Validation_Frequency 
-            trial_kwargs['lr_init'] = trial.suggest_loguniform('lr_init', low=LR_MIN, high=LR_CEIL)
-            trial_kwargs['weight_decay'] = trial.suggest_loguniform('weight_decay', low=WD_MIN, high=WD_CEIL)
-            #trial_kwargs['transformer_hidden_layers'] = trial.suggest_categorical('transformer_hidden_layers', choices= TF_HL)
-            #trial_kwargs['transformer_num_attention_heads'] = trial.suggest_categorical('transformer_num_attention_heads', choices=TF_AH)
-            #trial_kwargs['sequence_length'] = trial.suggest_categorical('sequence_length', choices=SL)
+            trial_kwargs['lr_step'] = 500
+            if kwargs.get('hyp_batch_size'):
+                trial_kwargs['batch_size'] = trial.suggest_int("batch_size",low=4, high=16, step=4)
+            if kwargs.get('hyp_lr_init'):
+                trial_kwargs['lr_init'] = trial.suggest_float("lr_init",low=LR_MIN, high=LR_CEIL, log=True)
+            if kwargs.get('hyp_lr_gamma'):
+                trial_kwargs['lr_gamma'] = trial.suggest_float("lr_gamma",low=0.1, high=0.9)
+            if kwargs.get('hyp_weight_decay'):
+                trial_kwargs['weight_decay'] = trial.suggest_float('weight_decay', low=WD_MIN, high=WD_CEIL, log=True)
+
+            # model related
+            if kwargs.get('hyp_transformer_hidden_layers'):
+                trial_kwargs['transformer_hidden_layers'] = trial.suggest_categorical('transformer_hidden_layers', choices=TF_HL)
+            if kwargs.get('hyp_transformer_num_attention_heads'):
+                trial_kwargs['transformer_num_attention_heads'] = trial.suggest_categorical('transformer_num_attention_heads', choices=TF_AH)
+            if kwargs.get('hyp_seq_len'):
+                trial_kwargs['sequence_length'] = trial.suggest_categorical('sequence_length', choices=SL)
+            if kwargs.get('hyp_dropout'):
+                trial_kwargs['transformer_dropout_rate'] = trial.suggest_float('transformer_dropout_rate', low = 0.1, high=0.8, step=0.1)
             trial_kwargs['nEpochs'] = NUM_EPOCHS
             trial_kwargs['trial'] = trial
-    
             trainer = Trainer(sets=S,**trial_kwargs)
 
             # classification
@@ -110,21 +139,26 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
         #                    CREATE OPTUNA STUDY
         #----------------------------------------------------------------------------------------------------
 
-        NUM_TRIALS = args.num_trials
         study_name = args.exp_name
-        print('NUM_TRIALS:', NUM_TRIALS)
+        print('NUM_TRIALS:', args.num_trials)
         optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
         if args.rank == 0:
             print('Triggering Optuna study')
             print('study_name:',study_name)
+            # storage=optuna.storages.RDBStorage(
+            # url='postgresql://junbeom_admin:DBcase6974!@nerscdb03.nersc.gov/junbeom', #"sqlite:///{}.db".format(study_name),
+            # skip_compatibility_check=True
+            # )
             storage=optuna.storages.RDBStorage(
-            url='postgresql://junbeom_admin:DBcase6974!@nerscdb03.nersc.gov/junbeom', #"sqlite:///{}.db".format(study_name),
+            url="sqlite:///{}.db".format(study_name),
+            engine_kwargs={ "connect_args": {"timeout": 10}},
             skip_compatibility_check=True
             )
-            study = optuna.create_study(study_name=study_name, sampler=optuna.samplers.RandomSampler(), pruner = optuna.pruners.MedianPruner(n_startup_trials=2, n_warmup_steps=5, interval_steps=1) ,storage=storage, load_if_exists=True, direction='maximize' if is_classification else 'minimize') 
-            study.optimize(objective, n_trials=NUM_TRIALS)  
+            # Default is TPESampler 
+            study = optuna.create_study(study_name=study_name, pruner = optuna.pruners.MedianPruner(n_startup_trials=args.n_startup_trials, n_warmup_steps=args.n_warmup_steps, interval_steps=args.interval_steps) ,storage=storage, load_if_exists=True, direction='maximize' if is_classification else 'minimize') 
+            study.optimize(objective, n_trials=args.num_trials)  
         else:
-            for _ in range(NUM_TRIALS):
+            for _ in range(args.num_trials):
                 try:
                     objective(None)
                 except optuna.TrialPruned:
@@ -152,7 +186,12 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
             for key, value in trial.params.items():
                 print("    {}: {}".format(key, value))
                 print('replace hyperparameter with best hyperparameters')
-                kwargs[key] = value
+                if key == 'learning_rate':
+                    kwargs['lr_init'] = value
+                elif key == 'gamma':
+                    kwargs['lr_gamma'] = value
+                else:
+                    kwargs[key] = value
 
             #kwargs to pkl
             with open(os.path.join(args.experiment_folder,'best_arguments.pkl'),'wb') as f:
@@ -164,16 +203,36 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
                     f.write('{}: {}\n'.format(name,arg))
 
     else:
+        if kwargs.get('use_best_params_from_optuna') == True:  # args.use_optuna should be False 
+            print('use_best_params_from_optuna')
+            study_name = args.exp_name
+            storage=optuna.storages.RDBStorage(
+                    url="sqlite:///{}.db".format(study_name),
+                    engine_kwargs={ "connect_args": {"timeout": 10}},
+                    skip_compatibility_check=True
+                    )
+            is_classification = kwargs.get('fine_tune_task') == 'binary_classification'
+            study = optuna.create_study(study_name=study_name, pruner = optuna.pruners.MedianPruner(n_startup_trials=args.n_startup_trials, n_warmup_steps=args.n_warmup_steps, interval_steps=args.interval_steps) ,storage=storage, load_if_exists=True, direction='maximize' if is_classification else 'minimize')
+            for key,value in study.best_params.items():
+                if key == 'learning_rate':
+                    print(f"replacing the value of learning_rate : from {kwargs['lr_init']} to {value}")
+                    kwargs['lr_init'] = value
+                elif key == 'gamma':
+                    print(f"replacing the value of gamma : from {kwargs['lr_gamma']} to {value}")
+                    kwargs['lr_gamma'] = value
+                else:
+                    print(f'replacing the value of {key} : from {kwargs[key]} to {value}')
+                    kwargs[key] = value
+                
+            kwargs['lr_step'] = 500 # fix the hyperparameter for fixed periods.
+
         trainer = Trainer(sets=S,**kwargs)
         trainer.training()
+ 
+        return None
 
-        # sort the pth files at the target directory. (the latest pth file comes first.)
-        pths = sort_pth_files(self.experiment_folder)
 
-        if len(pths) > 0 : 
-            return pths[0][0] # the most recent checkpoints (= the best model checkpoints)
-        else:
-            return None
+        
 
 
 def test(args,phase_num,model_weights_path):
@@ -213,8 +272,16 @@ if __name__ == '__main__':
         print(f'finishing testing')
     else:
         print(f'starting phase{step}: {task}')
-        model_weights_path = run_phase(args,model_weights_path,step,task)
+        _ = run_phase(args,model_weights_path,step,task)
         print(f'finishing phase{step}: {task}')
+
+        # sort the pth files at the target directory. (the latest pth file comes first.)
+        pths = sort_pth_files(args.experiment_folder)
+
+        if len(pths) > 0 : 
+            model_weights_path = pths[0][0] # the most recent checkpoints (= the best model checkpoints)
+        else:
+            model_weights_path = None
 
         # after finishing step3(classification/regression), run test.
         if step == '3' and (not args.use_optuna):

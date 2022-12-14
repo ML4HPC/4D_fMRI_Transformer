@@ -16,12 +16,14 @@ import math
 from torch.optim.lr_scheduler import _LRScheduler
 
 class LrHandler():
-    def __init__(self,**kwargs):
+    def __init__(self,train_loader,**kwargs):
+        self.kwargs = kwargs
         self.final_lr = 1e-7
+        self.num_iterations  = len(train_loader) # number of batches / world_size
         self.epoch = kwargs.get('nEpochs')
         self.lr_policy = kwargs.get('lr_policy')
         if kwargs.get('world_size') > 0:
-            self.step_size = int(kwargs.get('lr_step')) # / kwargs.get('world_size'))
+            self.step_size = int(kwargs.get('lr_step') / kwargs.get('world_size'))
         else:
             self.step_size = kwargs.get('lr_step')
         self.base_lr = kwargs.get('lr_init')
@@ -43,13 +45,14 @@ class LrHandler():
                 self.schedule.step() # 각 iteration 마다 update
                 if (self.schedule._step_count - 1) % self.step_size == 0:
                     print('current lr: {}'.format(optimizer.param_groups[0]['lr']))
-        elif self.lr_policy == 'SGDR':
+        else: 
             # if int(self.schedule._step_count) == 0 : 
             #     print('initializing warmup')
             # elif int(self.schedule._step_count) == int(self.warmup) : 
             #     print('finished warmup')
             self.schedule.step()
             # print('current lr: {}'.format(optimizer.param_groups[0]['lr']))
+
                     
     def get_scheduler(self,optimizer):
         
@@ -67,6 +70,10 @@ class LrHandler():
             # eta_max : lr의 최대값 (warmup 시 eta_max까지 값이 증가)
             # T_up : Warm up 시 필요한 epoch 수를 지정하며 일반적으로 짧은 epoch 수를 지정
             # gamma : lr를 얼마나 줄여나갈 것인지.(eta_max에 곱해지는 스케일값)
+        elif self.lr_policy == 'OneCycle':
+            scheduler = lr_scheduler.OneCycleLR(optimizer, max_lr=self.base_lr, steps_per_epoch=self.num_iterations, epochs=self.kwargs.get('nEpochs'))
+        elif self.lr_policy == 'CosAnn':
+            scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=0)
         else:
             return NotImplementedError('learning rate policy [%s] is not implemented', self.lr_policy)
         return scheduler

@@ -1,0 +1,56 @@
+#!/bin/sh
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l walltime=0:05:00
+#PBS -l filesystems=home:grand
+#PBS -q debug
+#PBS -A STlearn
+#PBS -j oe
+
+export MPICH_GPU_SUPPORT_ENABLED=1
+# torchrun for multi-node
+# torchrun + PBS로는 multi-node 학습이 안된다는 최종 결론.
+module load conda
+
+conda activate 3DCNN # activate conda 
+
+
+#export MPICH_GPU_SUPPORT_ENABLED=1
+
+#change directory to 4D_Transformer
+cd /lus/grand/projects/STlearn/4D_fMRI_Transformer/
+
+
+NNODES=`wc -l < $PBS_NODEFILE`
+NRANKS_PER_NODE=$(nvidia-smi -L | wc -l)
+# NDEPTH=8
+# NTHREADS=8
+
+#-n ${NTOTRANKS} : This is specifying the total number of MPI ranks to start.
+#--ppn ${NRANKS_PER_NODE} : This is specifying the number of MPI ranks to start on each node.
+#--depth=${NDEPTH} : This is specifying how many cores/threads to space MPI ranks apart on each node.
+#--cpu bind depth : This is indicating the number of cores/threads will be bound to MPI ranks based on the depth argument.
+#--env OMP_NUM_THREADS=${NTHREADS} : This is setting the environment variable OMP_NUM_THREADS : to determine the number of OpenMP threads per MPI rank.
+#--env OMP_PLACES=threads : This is indicating how OpenMP should distribute threads across the resource, in this case across hardware threads.
+
+
+#NTOTRANKS=$(( NNODES * NRANKS_PER_NODE ))
+#echo "NUM_OF_NODES= ${NNODES} TOTAL_NUM_RANKS= ${NTOTRANKS} RANKS_PER_NODE= ${NRANKS_PER_NODE} THREADS_PER_RANK= ${NTHREADS}"
+
+#MASTER=`/bin/hostname -s`
+# cat $PBS_NODEFILE>nodelist
+
+# SLAVES=`cat nodelist | grep -v $MASTER | uniq`
+# HOSTLIST="$MASTER $SLAVES"
+# echo $HOSTLIST
+
+# select random port
+#MPORT=`ss -tan | awk '{print $4}' | cut -d':' -f2 | grep "[2-9][0-9]\{3,3\}" | grep -v "[0-9]\{5,5\}" | sort | uniq | shuf -n 1`
+
+
+# mpiexec -n ${NNODES} --ppn ${NRANKS_PER_NODE} --depth=${NDEPTH} --cpu-bind depth --env OMP_NUM_THREADS=${NTHREADS} -env OMP_PLACES=threads torchrun --nnodes=${NNODES} --nproc_per_node=${NRANKS_PER_NODE} --rdzv_id=${PBS_JOBID} --rdzv_backend=c10d --master_addr=$MASTER main.py --dataset_split_num 1 --step 3 --batch_size_phase3 4 --exp_name polaris_job --init_method env --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs/
+torchrun --nnodes=${NNODES} --nproc_per_node=${NRANKS_PER_NODE} main.py --dataset_split_num 1 --step 3 --batch_size_phase3 4 --exp_name from_scratch_split_1 --init_method env --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs/
+#--model_weights_path_phase2 /global/cfs/cdirs/m3898/4D_fMRI_Transformer/experiments/S1200_tranformer_reconstruction_sex_from_step1_v2_batchsize2/S1200_tranformer_reconstruction_sex_from_step1_v2_batchsize2_epoch_9_batch_index_1397_BEST_val_loss.pth
+
+
+

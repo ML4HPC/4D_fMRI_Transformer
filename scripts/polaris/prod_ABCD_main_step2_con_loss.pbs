@@ -1,11 +1,16 @@
 #!/bin/sh
 #PBS -l select=10:system=polaris
 #PBS -l place=scatter
-#PBS -l walltime=0:20:00
+#PBS -l walltime=1:00:00
 #PBS -l filesystems=home:grand
 #PBS -q prod
 #PBS -A STlearn
 #PBS -j oe
+#PBS -N prod_ABCD_main_step2_con_loss
+
+set jobid = `echo $PBS_JOBID | awk -F . '{print $1}'`
+#PBS -o ../../job_logs/%N.o$jobid
+#PBS -e ../../job_logs/%N.e$jobid
 
 export MPICH_GPU_SUPPORT_ENABLED=1
 export NCCL_COLLNET_ENABLE=1
@@ -38,8 +43,7 @@ NDEPTH=16
 #--env OMP_PLACES=threads : This is indicating how OpenMP should distribute threads across the resource, in this case across hardware threads.
 
 set_affinity_cmd="./scripts/polaris/set_affinity_gpu_polaris.sh"
-Command="python main.py --step 3 --batch_size_phase3 4 --optim_phase3 Adam --exp_name from_scratch_split_1_Adam  --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs  --dataset_split_num 1"
-
+Command="python main.py --step 2 --lr_init_phase2 1e5 --batch_size_phase2 1 --dataset_name ABCD --exp_name con_loss  --image_path /lus/grand/projects/STlearn/8.masked_image_MNI_to_TRs  --use_cont_loss True --dataset_split_num 1"
 mpiexec -n ${NTOTRANKS} --ppn ${NRANKS_PER_NODE} --depth=${NDEPTH} --cpu-bind depth  $set_affinity_cmd $Command
 
 

@@ -1,5 +1,7 @@
 #fixed split
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__)))) # add parent path
 import pytorch_lightning as pl
 import numpy as np
 from torch.utils.data import DataLoader, Subset, RandomSampler
@@ -7,13 +9,15 @@ from .datasets2 import S1200, ABCD
 from torch.utils.data.distributed import DistributedSampler
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from .parser import str2bool
-
+from utils import reproducibility
 from multiprocessing import Manager
 
 class fMRIDataModule(pl.LightningDataModule):
     def __init__(self, **kwargs):
         super().__init__()
         self.save_hyperparameters()
+        self.kwargs = kwargs
+        self.seed = kwargs.get('seed') # 잘 들어감
 
         # generate splits folder
         split_dir_path = os.path.join(self.hparams.base_path,f'data/splits/{self.hparams.dataset_name}')
@@ -76,6 +80,7 @@ class fMRIDataModule(pl.LightningDataModule):
         return
 
     def setup(self, stage=None):
+        #reproducibility(self.kwargs) # Stella added this (originially self.kwargs and it was running.. but why it doesn't work TT)
         # this function will be called at each devices
         Dataset = self.get_dataset()
         
@@ -163,6 +168,7 @@ class fMRIDataModule(pl.LightningDataModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=True, formatter_class=ArgumentDefaultsHelpFormatter)
         group = parser.add_argument_group("DataModule arguments")
         #group.add_argument("--data_seed", type=int, default=1, help='1,2,3')
+        group.add_argument("--seed", type=int, default=27)
         group.add_argument("--dataset_split_num", type=int, default=1) # dataset split, choose from 1, 2, or 3
         group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy"], default="S1200")
         group.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD','ADHD','int_total','int_fluid'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD:classification, ADHD:classification, int_***:regression}')
@@ -174,13 +180,14 @@ class fMRIDataModule(pl.LightningDataModule):
         group.add_argument("--train_split", default=0.7)
         group.add_argument("--val_split", default=0.15)
         group.add_argument("--num_subset", type=int, default=-1)
+        
 
         # group.add_argument("--batch_size", type=int, default=4)
         group.add_argument("--sequence_length", default=20)
         group.add_argument("--num_workers", type=int, default=8)
 
         # group.add_argument("--to_float16", type=str2bool, default=True)
-        group.add_argument("--with_voxel_norm", type=str2bool, default=False)
+        group.add_argument("--with_voxel_norm",action='store_true', default=False)
         group.add_argument("--use_augmentations", default=False, action='store_true')
         group.add_argument("--tff_split", action='store_true')
 

@@ -7,6 +7,7 @@ from .datasets2 import S1200
 from torch.utils.data.distributed import DistributedSampler
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from .parser import str2bool
+from .utils import reproducibility
 
 class fMRIDataModule(pl.LightningDataModule):
     def __init__(self, **kwargs):
@@ -70,6 +71,7 @@ class fMRIDataModule(pl.LightningDataModule):
         return
 
     def setup(self, stage=None):
+        # reproducibility(**self.kwargs) Stella added this
         # this function will be called at each devices
         Dataset = self.get_dataset()
         params = {

@@ -26,6 +26,10 @@ from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 
 import optuna
+
+#wandb
+import wandb
+
 # ASP
 #from apex.contrib.sparsity import ASP
 
@@ -46,11 +50,11 @@ class Trainer():
         self.best_loss = 100000
         #self.best_accuracy = 0
         self.best_AUROC = 0
+        self.best_ACC = 0
         self.st_epoch = 1
         self.recent_pth = None
         self.state_dict = None
         
-        self.lr_handler = LrHandler(**kwargs)
         # self.train_loader, self.val_loader, self.test_loader = DataHandler(**kwargs).create_dataloaders()
         # torch lightening Dataloader
         dm = fMRIDataModule(**kwargs)
@@ -60,9 +64,11 @@ class Trainer():
         self.val_loader = dm.val_dataloader()
         self.test_loader = dm.test_dataloader()
         
+        #located here to give 'number of batches' to the LR scheduler.
+        self.lr_handler = LrHandler(self.train_loader, **kwargs)
         
         self.create_model() # model on cpu
-        if not self.use_optuna:
+        if not self.use_optuna and not self.train_from_scratch:
             self.load_model_checkpoint()
         self.set_model_device() # set DDP or DP after loading checkpoint at CPUs
         
@@ -70,7 +76,8 @@ class Trainer():
         self.lr_handler.set_schedule(self.optimizer)
         self.scaler = GradScaler() 
         
-        self.load_optim_checkpoint()
+        if not self.use_optuna and not self.train_from_scratch:    
+            self.load_optim_checkpoint()
 
         self.writer = Writer(sets,**kwargs)
         self.sets = sets
@@ -135,18 +142,6 @@ class Trainer():
         else:
             pass
             
-    
-    # def load_model_from_previous_phase(self,load_cls_embedding):
-    #     if self.loaded_model_weights_path: #after autoencoder
-    #         state_dict = torch.load(self.loaded_model_weights_path,map_location='cpu') #, map_location=self.device
-    #         self.lr_handler.set_lr(state_dict['lr'])
-    #         self.model.module.load_partial_state_dict(state_dict['model_state_dict'],load_cls_embedding=False)
-    #         self.model.module.loaded_model_weights_path = self.loaded_model_weights_path
-    #         text = 'loaded model weights:\nmodel location - {}\nlast learning rate - {}\nvalidation loss - {}\n'.format(
-    #             self.loaded_model_weights_path, state_dict['lr'],state_dict['loss_value'])
-    #         if 'accuracy' in state_dict:
-    #             text += 'validation accuracy - {}'.format(state_dict['accuracy'])
-    #         print(text)    
             
     def create_optimizer(self):
         lr = self.lr_handler.base_lr
@@ -454,9 +449,16 @@ class Trainer():
         else:
             return None
 
+    def get_last_ACC(self):
+        if hasattr(self.writer,'val_Balanced_Accuracy'):
+            return self.writer.val_Balanced_Accuracy[-1]
+        else:
+            return None
+
     def save_checkpoint_(self, epoch, batch_idx, scaler):
         loss = self.get_last_loss()
         #accuracy = self.get_last_AUROC()
+        ACC = self.get_last_ACC()
         AUROC = self.get_last_AUROC()
         title = str(self.writer.experiment_title) + '_epoch_' + str(int(epoch)) + '_batch_index_'+ str(batch_idx)
         

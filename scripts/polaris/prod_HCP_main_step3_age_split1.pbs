@@ -1,11 +1,17 @@
 #!/bin/sh
 #PBS -l select=10:system=polaris
 #PBS -l place=scatter
-#PBS -l walltime=0:40:00
+#PBS -l walltime=1:00:00
 #PBS -l filesystems=home:grand
 #PBS -q prod
 #PBS -A STlearn
 #PBS -j oe
+#PBS -N prod_HCP_main_step3_mask_loss_age
+
+cd /lus/grand/projects/STlearn/4D_fMRI_Transformer/job_logs
+set jobid = `echo $PBS_JOBID | awk -F . '{print $1}'`
+#PBS -o %N.o$jobid
+#PBS -e %N.e$jobid
 
 export MPICH_GPU_SUPPORT_ENABLED=1
 export NCCL_COLLNET_ENABLE=1
@@ -38,15 +44,7 @@ NDEPTH=16
 #--env OMP_PLACES=threads : This is indicating how OpenMP should distribute threads across the resource, in this case across hardware threads.
 
 set_affinity_cmd="./scripts/polaris/set_affinity_gpu_polaris.sh"
-
-
-# Command="python main.py --use_optuna --dataset_split_num 1 --step 3 --optim_phase3 Adam --batch_size_phase3 16 --block_type MobileNet_v3 --exp_name mobilenetv3_from_scratch_split_1_optuna_v2 --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs/ "
-
-# run hyperparameter tuning 
-#Command="python main.py --use_optuna --hyp_batch_size --hyp_lr_gammma --hyp_lr_init --hyp_seq_len --hyp_transformer_hidden_layers --hyp_transformer_num_attention_heads --hyp_weight_decay --dataset_split_num 1 --step 3 --optim_phase3 Adam --batch_size_phase3 16 --block_type MobileNet_v3 --exp_name mobilenetv3_from_scratch_split_1_optuna_v2 --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs/ "
-
-# load best hyperparameter and train
-Command="python main.py --use_best_params_from_optuna --dataset_split_num 1 --step 3 --optim_phase3 Adam --batch_size_phase3 16 --block_type MobileNet_v3 --exp_name mobilenetv3_from_scratch_split_1_optuna_v2 --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs/ "
+Command="python main.py --step 3  --num_workers 16 --batch_size_phase3 4 --fine_tune_task regression --target age --exp_name split1  --image_path /lus/grand/projects/STlearn/HCP_MNI_to_TRs --dataset_split_num 1"
 mpiexec -n ${NTOTRANKS} --ppn ${NRANKS_PER_NODE} --depth=${NDEPTH} --cpu-bind depth  $set_affinity_cmd $Command
 
 
