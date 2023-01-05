@@ -1,4 +1,5 @@
 from modules.utils import *  #including 'init_distributed', 'weight_loader'
+from modules.distributed import *
 from modules.trainer import Trainer
 import os
 from pathlib import Path
@@ -20,8 +21,6 @@ from copy import deepcopy
 import dill
 import logging
 import sys
-
-#import wandb
 
 # ASP
 #from apex.contrib.sparsity import ASP
@@ -57,10 +56,6 @@ def run_phase(args,loaded_model_weights_path,phase_num,phase_name):
 
     # make args to dict. + detach phase numbers from args
     kwargs = sort_args(phase_num, vars(args))
-
-    #wandb
-    #wandb.init(project=args.exp_name)
-    #wandb.config = kwargs
 
     S = ['train','val']
 
