@@ -53,17 +53,16 @@ def datestamp():
     time = datetime.now(timezone('Asia/Seoul')).strftime("%m_%d__%H_%M_%S")
     return time
 
-def reproducibility(**kwargs):
-    seed = kwargs.get('seed')
-    # print('seed is fixed to:', seed) # 자꾸 None이 뜨는데..
-    cuda = kwargs.get('cuda')
+def reproducibility(seed, deterministic=False):
+    os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if cuda:
-        torch.cuda.manual_seed_all(seed)
-    cudnn.deterministic = False #True
-    cudnn.benchmark = True # If true, use the best algorithm (the value can be changed by changing the algorithm)
+    torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        cudnn.deterministic = True
+        cudnn.benchmark = True # If true, use the best algorithm (the value can be changed by changing the algorithm)
 
 def sort_args(phase, args):
     phase_specific_args = {}
