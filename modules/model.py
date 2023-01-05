@@ -19,16 +19,17 @@ class BaseModel(nn.Module, ABC):
     def device(self):
         return next(self.parameters()).device
 
-    def determine_shapes(self,encoder,dim):
+    def determine_shapes(self,encoder,dim, with_voxel_norm = None):
         def get_shape(module,input,output):
             module.input_shape = tuple(input[0].shape[-3:])
             module.output_shape = tuple(output[0].shape[-3:])
         hook1 = encoder.down_block1.register_forward_hook(get_shape)
         hook2 = encoder.down_block3.register_forward_hook(get_shape)
         
-        
-        #input_shape = (1,2,) + dim 
-        input_shape = (1,) + dim  #batch,norms,H,W,D,time
+        if with_voxel_norm == True:
+            input_shape = (1,2) + dim  #batch,norms,H,W,D,time
+        else:
+            input_shape = (1,1) + dim #batch,norms,H,W,D,time
         x = torch.ones((input_shape))
         with torch.no_grad():
             encoder(x)
@@ -196,7 +197,7 @@ class AutoEncoder(BaseModel):
         # ENCODING
         self.task = 'autoencoder_reconstruction'
         self.encoder = Encoder(**kwargs).to(memory_format=torch.channels_last_3d)
-        self.determine_shapes(self.encoder,dim)
+        self.determine_shapes(self.encoder,dim, with_voxel_norm = kwargs.get('with_voxel_norm'))
         kwargs['shapes'] = self.shapes
         # BottleNeck into bert
         self.into_bert = BottleNeck_in(**kwargs).to(memory_format=torch.channels_last_3d)
@@ -290,7 +291,7 @@ class Encoder_Transformer_Decoder(BaseModel):
         self.register_vars(**kwargs)
         # ENCODING
         self.encoder = Encoder(**kwargs).to(memory_format=torch.channels_last_3d)
-        self.determine_shapes(self.encoder,dim)
+        self.determine_shapes(self.encoder,dim, with_voxel_norm = kwargs.get('with_voxel_norm'))
         kwargs['shapes'] = self.shapes
 
         # changed from NCHDW to NHWDC format for accellerating
@@ -378,7 +379,7 @@ class Encoder_Transformer_finetune(BaseModel):
         self.register_vars(**kwargs)
         # ENCODING
         self.encoder = Encoder(**kwargs).to(memory_format=torch.channels_last_3d)
-        self.determine_shapes(self.encoder, dim)
+        self.determine_shapes(self.encoder, dim, with_voxel_norm = kwargs.get('with_voxel_norm'))
         kwargs['shapes'] = self.shapes
         # BottleNeck into bert
         self.into_bert = BottleNeck_in(**kwargs).to(memory_format=torch.channels_last_3d)
