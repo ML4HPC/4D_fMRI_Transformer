@@ -198,18 +198,22 @@ class ABCD(BaseDataset):
         subject_list = os.listdir(img_root)
         if self.target == 'sex': task_name = 'sex'
         elif self.target == 'age': task_name = 'age'
+        elif self.target == 'bmi' : task_name = 'BMI'
         elif self.target == 'int_total': task_name = 'nihtbx_totalcomp_uncorrected'
         elif self.target == 'int_fluid': task_name = 'nihtbx_fluidcomp_uncorrected'
         elif self.target == 'ASD': task_name = 'ASD_label'
         elif self.target == 'ADHD': task_name = 'ADHD_label'
         else: raise ValueError('downstream task not supported')
 
+        continuous_vars = ['age','bmi','int_total','int_fluid']
+
         # drop nan
         meta_task = self.meta_data[['subjectkey',task_name]].dropna()
         non_na_subjects = meta_task['subjectkey'].values
         subject_list = [subj for subj in subject_list if subj[4:] in non_na_subjects]
         
-        if self.target == 'age':
+        #continuous variable
+        if self.target in continuous_vars:
             cont_mean = np.array(meta_task[task_name]).mean()
             cont_std = np.array(meta_task[task_name]).std()
 
@@ -217,7 +221,7 @@ class ABCD(BaseDataset):
             subject_name = subject[4:]
 
             #if subject_name in meta_task['subjectkey'].values:
-            if self.target == 'age':
+            if self.target in continuous_vars:
                 target = (meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0] - cont_mean)/cont_std
             else:
                 target = meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0]
