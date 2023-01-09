@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__)))) # a
 import pytorch_lightning as pl
 import numpy as np
 from torch.utils.data import DataLoader, Subset, RandomSampler
-from .datasets2 import S1200, ABCD
+from .datasets2 import S1200, ABCD, ABCD_timeseries
 from torch.utils.data.distributed import DistributedSampler
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from .parser import str2bool
@@ -42,6 +42,8 @@ class fMRIDataModule(pl.LightningDataModule):
             return S1200
         elif self.hparams.dataset_name == "ABCD":
             return ABCD
+        elif self.hparams.dataset_name == "ABCD_timeseries":
+            return ABCD_timeseries
         else:
             raise NotImplementedError
 
@@ -103,11 +105,17 @@ class fMRIDataModule(pl.LightningDataModule):
                 "with_voxel_norm": self.hparams.with_voxel_norm,
                 "target": self.hparams.target
             }
+        elif self.hparams.dataset_name == "ABCD_timeseries":
+            params = {
+                "root": self.hparams.image_path,
+                "sequence_length": self.hparams.sequence_length,
+                "target": self.hparams.target
+            }
         dataset_w_aug = Dataset(**params, use_augmentations=True)
         dataset_wo_aug = Dataset(**params, use_augmentations=False)
 
         self.subject_list = dataset_w_aug.data
-        # print(self.subject_list) # 여기까지는 subject 목록이 잘 표출됨.
+        self.subject_list = dataset_wo_aug.data
         if os.path.exists(self.split_file_path):
             print(f'loading split file : {self.split_file_path}')
             train_names, val_names, test_names = self.load_split()
@@ -170,7 +178,7 @@ class fMRIDataModule(pl.LightningDataModule):
         #group.add_argument("--data_seed", type=int, default=1, help='1,2,3')
         group.add_argument("--seed", type=int, default=27)
         group.add_argument("--dataset_split_num", type=int, default=1) # dataset split, choose from 1, 2, or 3
-        group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy"], default="S1200")
+        group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy", "ABCD_timeseries"], default="S1200")
         group.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD','ADHD','int_total','int_fluid'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD:classification, ADHD:classification, int_***:regression}')
         group.add_argument('--fine_tune_task',
                         default='binary_classification',
@@ -183,7 +191,7 @@ class fMRIDataModule(pl.LightningDataModule):
         
 
         # group.add_argument("--batch_size", type=int, default=4)
-        group.add_argument("--sequence_length", default=20)
+        group.add_argument("--sequence_length", type=int, default=20, choices = [20, 368])
         group.add_argument("--num_workers", type=int, default=8)
 
         # group.add_argument("--to_float16", type=str2bool, default=True)

@@ -7,7 +7,7 @@ import torch
 import warnings
 import numpy as np
 from tqdm import tqdm
-from .model import Encoder_Transformer_Decoder,Encoder_Transformer_finetune,AutoEncoder,MobileNet_v2_Transformer_finetune, MobileNet_v3_Transformer_finetune
+from .model import Encoder_Transformer_Decoder,Encoder_Transformer_finetune,AutoEncoder,MobileNet_v2_Transformer_finetune, MobileNet_v3_Transformer_finetune, Transformer_Net
 from .losses import get_intense_voxels
 import time
 import pathlib
@@ -158,7 +158,8 @@ class Trainer():
         #             state[k] = v.cuda(self.gpu)
 
     def create_model(self):
-        dim = next(iter(self.train_loader))["fmri_sequence"].shape[1:5] # channel, w, h, d
+        if self.dataset_type == 'image':
+            dim = next(iter(self.train_loader))["fmri_sequence"].shape[1:5] # channel, w, h, d
         #print('task is:', self.task.lower()) transformer_reconstruction
         if self.task.lower() in ['fine_tune', 'test']:
             if self.block_type == 'MobileNet_v2':
@@ -171,6 +172,8 @@ class Trainer():
             self.model = AutoEncoder(dim,**self.kwargs)
         elif self.task.lower() == 'transformer_reconstruction':
             self.model = Encoder_Transformer_Decoder(dim,**self.kwargs)
+        elif self.task.lower() == 'transformer_baseline':
+            self.model = Transformer_Net(**self.kwargs)
         
     def set_model_device(self):
         if self.distributed:
@@ -367,30 +370,36 @@ class Trainer():
                         break
         
     def forward_pass(self,input_dict):
-        '''
-        shape of input dict is : torch.Size([batch, ch, w, h, d, t])
-        '''
         input_dict = {k:(v.to(self.gpu) if (self.cuda and torch.is_tensor(v)) else v) for k,v in input_dict.items()}
-        if self.with_voxel_norm:
-            with torch.no_grad():
-                mean = input_dict['fmri_sequence'][:,:,:,:,:,-2:-1]
-                std = input_dict['fmri_sequence'][:,:,:,:,:,-1:]
-                fmri = input_dict['fmri_sequence'][:,:,:,:,:,:-2]
+        if self.dataset_type == 'image':
+            '''
+            shape of input dict is : torch.Size([batch, ch, w, h, d, t])
+            '''
+            if self.with_voxel_norm:
+                with torch.no_grad():
+                    mean = input_dict['fmri_sequence'][:,:,:,:,:,-2:-1]
+                    std = input_dict['fmri_sequence'][:,:,:,:,:,-1:]
+                    fmri = input_dict['fmri_sequence'][:,:,:,:,:,:-2]
 
-                background_value = torch.min(fmri.flatten(start_dim=1), dim=1, keepdim=False)[0]
-                background_mask = fmri == background_value[:, None, None, None, None, None]
-                vnorm_fmri = torch.zeros_like(fmri,device=self.gpu)
+                    background_value = torch.min(fmri.flatten(start_dim=1), dim=1, keepdim=False)[0]
+                    background_mask = fmri == background_value[:, None, None, None, None, None]
+                    vnorm_fmri = torch.zeros_like(fmri,device=self.gpu)
 
-                vnorm_fmri[~background_mask] = ((fmri - mean) / (std + 1e-8))[~background_mask]
-                vnorm_fmri.add_(background_mask * background_value[:, None, None, None, None, None]) # inplace operation
-                
-                input_dict['fmri_sequence'] = torch.cat([fmri, vnorm_fmri], dim=1)
-        output_dict = self.model(input_dict['fmri_sequence']) 
-        torch.cuda.nvtx.range_push("aggregate_losses")
-        loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
-        torch.cuda.nvtx.range_pop()
-        if self.task in ['fine_tune', 'test']:
+                    vnorm_fmri[~background_mask] = ((fmri - mean) / (std + 1e-8))[~background_mask]
+                    vnorm_fmri.add_(background_mask * background_value[:, None, None, None, None, None]) # inplace operation
+                    
+                    input_dict['fmri_sequence'] = torch.cat([fmri, vnorm_fmri], dim=1)
+            output_dict = self.model(input_dict['fmri_sequence']) 
+            torch.cuda.nvtx.range_push("aggregate_losses")
+            loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
+            torch.cuda.nvtx.range_pop()
+            if self.task in ['fine_tune', 'test']:
+                self.compute_accuracy(input_dict, output_dict)
+        elif self.dataset_type == 'timeseries':
+            output_dict = self.model(input_dict['fmri_sequence'])
+            loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
             self.compute_accuracy(input_dict, output_dict)
+
         return loss_dict, loss
 
 
@@ -414,7 +423,7 @@ class Trainer():
                 factored_loss = current_loss_value * lamda
                 final_loss_dict[loss_name] = factored_loss.item()
                 final_loss_value += factored_loss
-        final_loss_dict['total'] = final_loss_value.item()
+        final_loss_dict['total'] = final_loss_value.item() # problem occurs here for baseline model
         return final_loss_dict, final_loss_value
         
     def testing(self):

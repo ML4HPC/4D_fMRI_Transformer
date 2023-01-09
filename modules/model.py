@@ -651,3 +651,38 @@ class MobileNet_v3_Transformer_finetune(BaseModel):
         torch.cuda.nvtx.range_pop()
         return {self.task:prediction}
 
+## baseline model - Stella
+class Transformer_Net(BaseModel):
+    def __init__(self, **kwargs):
+        super(Transformer_Net, self).__init__()
+        self.task = kwargs.get('fine_tune_task')
+        self.register_vars(**kwargs)
+        # transformer
+        self.transformer = Transformer_Block(self.BertConfig, **kwargs).to(memory_format=torch.channels_last_3d)
+        if self.task == 'regression':
+            self.final_activation_func = nn.LeakyReLU()
+        elif self.task == 'binary_classification':
+            self.final_activation_func = nn.Sigmoid()
+            self.label_num = 1
+        self.regression_head = nn.Linear(self.intermediate_vec, self.label_num) #.to(memory_format=torch.channels_last_3d)
+
+    def forward(self, x):
+        
+        batch_size, T, ROIs = x.shape # (batch size, 368, 84)
+
+        torch.cuda.nvtx.range_push("transformer")
+
+        
+        transformer_dict = self.transformer(x)
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push("reshape")
+        
+        '''
+        size of out seq is: torch.Size([1, 361, 84])
+        size of out cls is: torch.Size([1, 84])
+        size of prediction is: torch.Size([1, 1])
+        '''
+        out_seq = transformer_dict['sequence']
+        out_cls = transformer_dict['cls']
+        prediction = self.regression_head(out_cls)
+        return {'reconstructed_fmri_sequence': out_seq, 'embedding_per_ROIs': out_cls, self.task:prediction}

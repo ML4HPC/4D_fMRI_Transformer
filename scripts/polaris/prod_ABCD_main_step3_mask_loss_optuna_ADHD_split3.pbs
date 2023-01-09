@@ -1,0 +1,51 @@
+#!/bin/sh
+#PBS -l select=10:system=polaris
+#PBS -l place=scatter
+#PBS -l walltime=3:00:00
+#PBS -l filesystems=home:grand
+#PBS -q prod
+#PBS -A STlearn
+#PBS -j oe
+#PBS -N prod_ABCD_main_step3_mask_loss_optuna_ADHD
+
+cd /lus/grand/projects/STlearn/4D_fMRI_Transformer/job_logs
+set jobid = `echo $PBS_JOBID | awk -F . '{print $1}'`
+#PBS -o %N.o$jobid
+#PBS -e %N.e$jobid
+
+export MPICH_GPU_SUPPORT_ENABLED=1
+export NCCL_COLLNET_ENABLE=1
+export NCCL_NET_GDR_LEVEL=PHB
+
+# mpiexec for multi-node, which is slower than torchrun in one node
+module load conda
+conda activate 3DCNN # activate conda 
+
+# change directory where the qsub was executed.
+#cd $PBS_O_WORKDIR
+
+#change directory to 4D_Transformer
+cd /lus/grand/projects/STlearn/4D_fMRI_Transformer/
+
+export MASTER_ADDR=`/bin/hostname -s`
+NNODES=`wc -l < $PBS_NODEFILE`
+NRANKS_PER_NODE=$(nvidia-smi -L | wc -l)
+NTOTRANKS=$(( NNODES * NRANKS_PER_NODE ))
+echo "NUM_OF_NODES= ${NNODES} TOTAL_NUM_RANKS= ${NTOTRANKS} RANKS_PER_NODE= ${NRANKS_PER_NODE}"
+
+NDEPTH=16
+# NTHREADS=8
+
+#-n ${NTOTRANKS} : This is specifying the total number of MPI ranks to start.
+#--ppn ${NRANKS_PER_NODE} : This is specifying the number of MPI ranks to start on each node.
+#--depth=${NDEPTH} : This is specifying how many cores/threads to space MPI ranks apart on each node.
+#--cpu bind depth : This is indicating the number of cores/threads will be bound to MPI ranks based on the depth argument.
+#--env OMP_NUM_THREADS=${NTHREADS} : This is setting the environment variable OMP_NUM_THREADS : to determine the number of OpenMP threads per MPI rank.
+#--env OMP_PLACES=threads : This is indicating how OpenMP should distribute threads across the resource, in this case across hardware threads.
+
+set_affinity_cmd="./scripts/polaris/set_affinity_gpu_polaris.sh"
+Command="python main.py --step 3 --batch_size_phase3 4 --use_optuna --hyp_seq_len --hyp_transformer_hidden_layers --hyp_lr_init --hyp_weight_decay --hyp_transformer_num_attention_heads --hyp_dropout --target ADHD --dataset_name ABCD --exp_name mask_loss_ADHD_optuna_221219_split3  --image_path /lus/grand/projects/STlearn/8.masked_image_MNI_to_TRs --use_mask_loss True --dataset_split_num 3 --model_weights_path_phase2 './experiments/ABCD_transformer_reconstruction_sex_mask_loss/ABCD_transformer_reconstruction_sex_mask_loss_epoch_11_batch_index_1334_BEST_val_loss.pth'"
+mpiexec -n ${NTOTRANKS} --ppn ${NRANKS_PER_NODE} --depth=${NDEPTH} --cpu-bind depth  $set_affinity_cmd $Command
+
+
+

@@ -8,6 +8,7 @@ import pandas as pd
 from pathlib import Path
 import numpy as np
 import torchio as tio
+import scipy
 
 
 class BaseDataset(Dataset):
@@ -25,6 +26,7 @@ class BaseDataset(Dataset):
         # if use_augmentations or contrastive:
         #     raise NotImplementedError()
         self.cache = img_cache
+        self.index_l = []
         self.data = self._set_data(root, sequence_length) # get list (element is tuple)
         self.with_voxel_norm = with_voxel_norm
 
@@ -252,3 +254,68 @@ class ABCD(BaseDataset):
         } 
 
 
+class ABCD_timeseries(BaseDataset):
+    def __init__(
+            self,
+            root='/mnt/ssd/processed/ABCD',
+            dtype='float16',
+            use_augmentations=False,
+            sequence_length=368,
+            target = 'sex',
+        ):
+        self.dtype = dtype
+        self.target = target
+        super(ABCD_timeseries, self).__init__(
+            root=root,
+            sequence_length=sequence_length,
+            use_augmentations=use_augmentations
+            )
+
+
+    def _set_data(self, root, sequence_length):
+        data = []
+        self.meta_data = pd.read_csv(os.path.join('/lus/grand/projects/STlearn/4D_fMRI_Transformer/data/metadata', "ABCD_phenotype_total.csv"))
+        subject_list = os.listdir(root) # format : sub-NDARINVZRHTXMXD
+        if self.target == 'sex': task_name = 'sex'
+        elif self.target == 'age': task_name = 'age'
+        elif self.target == 'int_total': task_name = 'nihtbx_totalcomp_uncorrected'
+        elif self.target == 'int_fluid': task_name = 'nihtbx_fluidcomp_uncorrected'
+        elif self.target == 'ASD': task_name = 'ASD_label'
+        elif self.target == 'ADHD': task_name = 'ADHD_label'
+        else: raise ValueError('downstream task not supported')
+
+        # drop nan
+        meta_task = self.meta_data[['subjectkey',task_name]].dropna() # format: NDARINV00BD7VDC
+        non_na_subjects = meta_task['subjectkey'].values # format: NDARINV00BD7VDC
+        subject_list = [subj for subj in subject_list if subj[4:] in non_na_subjects] # format: sub-NDARINV00BD7VDC
+        if self.target == 'age':
+            cont_mean = np.array(meta_task[task_name]).mean()
+            cont_std = np.array(meta_task[task_name]).std()
+
+        for i, subject in enumerate(subject_list):
+            subject_name = subject[4:]
+            #if subject_name in meta_task['subjectkey'].values:
+            if self.target == 'age':
+                target = (meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0] - cont_mean)/cont_std
+            else:
+                target = meta_task[meta_task["subjectkey"]==subject_name][task_name].values[0]
+            target = torch.tensor(target).type(torch.float) # Stella added this
+
+            file_name = 'desikankilliany_'+subject+'.npy'   
+            path_to_fMRIs = os.path.join(root, subject, file_name)
+
+            data.append((i, subject, path_to_fMRIs, target))
+        return data
+            
+
+    def __getitem__(self, index):
+        _, subject, path_to_fMRIs, target = self.data[index]
+        y = np.load(path_to_fMRIs)[20:].T # [84, 350 ~ 361]
+        ts_length = y.shape[1]
+        pad = 368-ts_length
+
+        y = scipy.stats.zscore(y, axis=None) # (84, 350 ~ 361)
+        y = torch.nn.functional.pad(torch.from_numpy(y), (pad//2, pad-pad//2), "constant", 0) # (84, 361)
+        y = y.T.float() #.type(torch.DoubleTensor) # (361, 84)
+
+        return {'fmri_sequence':y,'subject':subject, self.target:target}

@@ -165,7 +165,7 @@ class Writer():
             if 'tran' in kwargs.get('task').lower() and kwargs.get('use_mask_loss'):
                 self.losses['mask']['is_active'] = True
             
-        elif kwargs.get('task').lower() in ['fine_tune', 'test']:
+        elif kwargs.get('task').lower() in ['fine_tune', 'test', 'transformer_baseline']:
             if kwargs.get('fine_tune_task').lower() == 'regression':
                 self.losses['regression']['is_active'] = True
             else:

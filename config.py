@@ -13,12 +13,12 @@ def get_arguments(base_path):
     parser.add_argument('--base_path', default=base_path)
 
     parser.add_argument('--block_type', default='green', choices=['MobileNet_v2','MobileNet_v3','green'])
-    parser.add_argument('--step', default='1', choices=['1','2','3','4'], help='which step you want to run')
+    parser.add_argument('--step', default='1', choices=['0', '1','2','3','4'], help='which step you want to run')
     parser.add_argument('--cuda', default=True)
     parser.add_argument('--log_dir', type=str, default=os.path.join(base_path, 'runs'))
     parser.add_argument('--train_from_scratch', action='store_true', default=False, help='if True, do not load checkpoint')
     # parser.add_argument('--random_TR', action='store_false') #True면(인자를 넣어주지 않으면) 전체 sequence 로부터 random sampling(default). False면 (--random_TR 인자를 넣어주면) 0번째 TR부터 sliding window
-    
+    parser.add_argument('--dataset_type', default='image', choices = ['image', 'timeseries'], help = 'if timeseries, load timeseries data')
     # optuna related 
     parser.add_argument('--use_optuna', action='store_true', help='whether to use optuna hyperparameter training. DB location is determined by exp_name')
     parser.add_argument('--use_best_params_from_optuna', action='store_true', help='load best params from Optuna results in DB. --use_optuna should be False if this argument is True')
@@ -71,7 +71,7 @@ def get_arguments(base_path):
     # model related
     parser.add_argument('--transformer_hidden_layers', type=int,default=16)
     parser.add_argument('--transformer_num_attention_heads',type=int, default=16)
-    parser.add_argument('--transformer_emb_size',type=int ,default=2640)
+    parser.add_argument('--transformer_emb_size',type=int ,default=2640, choices = [84, 2640], help='84 for transformer baseline, 2640 for 4Dtransformer')
     parser.add_argument('--running_mean_size', default=5000)
     parser.add_argument('--return_value', default=False)
     parser.add_argument('--transformer_dropout_rate', type=float, default=0.1)
@@ -100,6 +100,20 @@ def get_arguments(base_path):
     # Nsight profiling
     parser.add_argument("--profiling", action='store_true')
    
+
+    ##phase 0
+    parser.add_argument('--task_phase0', type=str, default='transformer_baseline')
+    parser.add_argument('--batch_size_phase0', type=int, default=8, help='for DDP, each GPU processes batch_size_pahse1 samples') #이걸.. 잘게 쪼개볼까? 원래는 4였음.
+    parser.add_argument('--validation_frequency_phase0', type=int, default=10000000) # 11 for test #original: 10000) #원래는 1000이었음 -> 약 7분 걸릴 예정.
+    parser.add_argument('--nEpochs_phase0', type=int, default=20) 
+    parser.add_argument('--augment_prob_phase0', default=0)
+    parser.add_argument('--optim_phase0', default='AdamW')
+    parser.add_argument('--weight_decay_phase0', default=1e-7)
+    parser.add_argument('--lr_policy_phase0', default='step', choices=['step','SGDR','OneCycle','CosAnn'], help='learning rate policy: step|SGDR')
+    parser.add_argument('--lr_init_phase0', type=float, default=1e-3)
+    parser.add_argument('--lr_gamma_phase0', type=float, default=0.97)
+    parser.add_argument('--lr_step_phase0', type=int, default=500)
+
     ##phase 1
     parser.add_argument('--task_phase1', type=str, default='autoencoder_reconstruction')
     parser.add_argument('--batch_size_phase1', type=int, default=8, help='for DDP, each GPU processes batch_size_pahse1 samples') #이걸.. 잘게 쪼개볼까? 원래는 4였음.
