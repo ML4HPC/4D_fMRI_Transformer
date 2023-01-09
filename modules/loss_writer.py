@@ -154,23 +154,24 @@ class Writer():
         else:
             self.subject_accuracy = {}
 
+
     # run after each epoch
     def register_wandb(self,epoch, lr):
-            wandb_result = {}
-            wandb_result['epoch'] = epoch
-            wandb_result['learning_rate'] = lr
+        wandb_result = {}
+        wandb_result['epoch'] = epoch
+        wandb_result['learning_rate'] = lr
 
-            #losses 
-            loss_d = self.append_total_to_losses() 
-            for name, loss_dict in loss_d.items():
-                # name : perceptual, reconstruction, ...
-                if loss_dict['is_active']:
-                    for set in self.sets:
-                        title = name + '_' + set
-                        wandb_result[f'{title}_loss_history'] = getattr(self,title + '_loss_history')[-1]
-            #accuracy
-            wandb_result.update(self.current_metrics)
-            wandb.log(wandb_result)
+        #losses 
+        loss_d = self.append_total_to_losses() 
+        for name, loss_dict in loss_d.items():
+            # name : perceptual, reconstruction, ...
+            if loss_dict['is_active']:
+                for set in self.sets:
+                    title = name + '_' + set
+                    wandb_result[f'{title}_loss_history'] = getattr(self,title + '_loss_history')[-1]
+        #accuracy
+        wandb_result.update(self.current_metrics)
+        wandb.log(wandb_result)
 
     # run at the end of each iteration
     def write_losses(self,final_loss_dict,set):
@@ -213,7 +214,7 @@ class Writer():
             if 'tran' in kwargs.get('task').lower() and kwargs.get('use_mask_loss'):
                 self.losses['mask']['is_active'] = True
             
-        elif kwargs.get('task').lower() in ['fine_tune', 'test']:
+        elif kwargs.get('task').lower() in ['fine_tune', 'test', 'transformer_baseline']:
             if kwargs.get('fine_tune_task').lower() == 'regression':
                 self.losses['regression']['is_active'] = True
             else:

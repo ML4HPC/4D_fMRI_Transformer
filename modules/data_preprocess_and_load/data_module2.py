@@ -140,7 +140,7 @@ class fMRIDataModule(pl.LightningDataModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=True, formatter_class=ArgumentDefaultsHelpFormatter)
         group = parser.add_argument_group("DataModule arguments")
         group.add_argument("--data_seed", type=int, default=1234)
-        group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy"], default="S1200")
+        group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy", "ABCD_timeseries"], default="S1200")
         group.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD_label','ADHD_label','nihtbx_totalcomp_uncorrected','nihtbx_fluidcomp_uncorrected'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD_label:classification, ADHD_label:classification, nihtbx_***:regression}')
         group.add_argument('--fine_tune_task',
                         default='binary_classification',
