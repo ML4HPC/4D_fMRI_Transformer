@@ -63,6 +63,9 @@ def get_arguments(base_path):
     parser.add_argument('--which_perceptual', default='vgg', choices=['vgg','densenet3d'])
     parser.add_argument('--reconstruction_factor', default=1)
     
+    #wandb related
+    parser.add_argument('--wandb_key', default='108101f4b9c3e31a235aa58307d1c6b548cfb54a', type=str,  help='default: key for Stella')
+    parser.add_argument('--wandb_mode', default='online', type=str,  help='online|offline')
     
     # Special losses by Stella 
     parser.add_argument('--use_cont_loss', action='store_true', default=False)

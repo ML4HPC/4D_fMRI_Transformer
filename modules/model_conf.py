@@ -6,6 +6,8 @@ from datetime import datetime
 import torch.nn as nn
 from .nvidia_blocks import *
 import random
+import sys #####
+sys.stdout.flush() #####
 
 class BaseModel(nn.Module, ABC):
     def __init__(self):
@@ -320,7 +322,9 @@ class Encoder_Transformer_Decoder(BaseModel):
         torch.cuda.nvtx.range_pop()
         torch.cuda.nvtx.range_push("into_bert")
         encoded = self.into_bert(encoded)
-        encoded_conf = torch.cat(encoded, conf) #####
+        print('encoded shape:', encoded.shape)
+        print('conf expand shape:', conf.expand(encoded.shape[0], conf.shape[1]).shape)
+        encoded_conf = torch.cat((encoded, conf.expand(encoded.shape[0], conf.shape[1])), dim=1) #####
         torch.cuda.nvtx.range_pop()
         #encoded = encoded.reshape(batch_size, T, -1) #####
         encoded = encoded_conf.reshape(batch_size, T, -1) #####

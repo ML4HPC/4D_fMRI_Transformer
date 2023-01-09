@@ -177,7 +177,7 @@ class S1200(BaseDataset):
             "sex": 1.0 if sex == 'M' else 0,
             "age": age,
             "TR": start_frame,
-            "conf": conf_list, #####
+            "conf": torch.tensor(conf_list, dtype=torch.float16), #####
         } 
         
 class ABCD(BaseDataset):

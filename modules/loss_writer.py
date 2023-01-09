@@ -10,6 +10,9 @@ from itertools import zip_longest
 from .metrics import Metrics
 import torch.distributed as dist
 
+import wandb
+import time
+
 class Writer():
     """
     main class to handle logging the results, both to tensorboard and to a local csv file
@@ -123,6 +126,22 @@ class Writer():
         else:
             self.subject_accuracy = {}
 
+    def register_wandb(self,epoch, lr):
+        wandb_result = {}
+        wandb_result['epoch'] = epoch
+        wandb_result['learning_rate'] = lr
+
+        #losses 
+        loss_d = self.append_total_to_losses() 
+        for name, loss_dict in loss_d.items():
+            # name : perceptual, reconstruction, ...
+            if loss_dict['is_active']:
+                for set in self.sets:
+                    title = name + '_' + set
+                    wandb_result[f'{title}_loss_history'] = getattr(self,title + '_loss_history')[-1]
+        #accuracy
+        wandb_result.update(self.current_metrics)
+        wandb.log(wandb_result)
 
     def write_losses(self,final_loss_dict,set):
         for loss_name,loss_value in final_loss_dict.items():

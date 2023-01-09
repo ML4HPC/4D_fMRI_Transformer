@@ -389,7 +389,7 @@ class Trainer():
                     vnorm_fmri.add_(background_mask * background_value[:, None, None, None, None, None]) # inplace operation
                     
                     input_dict['fmri_sequence'] = torch.cat([fmri, vnorm_fmri], dim=1)
-            output_dict = self.model(input_dict['fmri_sequence']) 
+            output_dict = self.model(input_dict['fmri_sequence'], input_dict['conf']) #####
             torch.cuda.nvtx.range_push("aggregate_losses")
             loss_dict, loss = self.aggregate_losses(input_dict, output_dict)
             torch.cuda.nvtx.range_pop()

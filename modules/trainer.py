@@ -82,6 +82,13 @@ class Trainer():
         self.writer = Writer(sets,**kwargs)
         self.sets = sets
         
+        #wandb
+
+        os.environ["WANDB_API_KEY"] = kwargs.get('wandb_key')
+        os.environ["WANDB_MODE"] = kwargs.get('wandb_mode')
+        wandb.init(project='4D fMRI Transformers',entity='fsb',reinit=True, name=self.experiment_title, config=kwargs)
+        wandb.watch(self.model,log='all',log_freq=10)
+
         self.nan_list = []
 
         for name, loss_dict in self.writer.losses.items():
@@ -219,6 +226,9 @@ class Trainer():
             self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
             self.writer.accuracy_summary(mid_epoch=True)
             self.writer.save_history_to_csv()
+
+            self.writer.register_wandb(epoch, lr=self.optimizer.param_groups[0]['lr'])
+
             if self.use_optuna:
                 val_AUROC = self.get_last_AUROC()
                 if val_AUROC > self.best_AUROC:
