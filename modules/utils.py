@@ -14,6 +14,8 @@ import time
 def weight_loader(args):
     model_weights_path = None
     try:
+        if args.step == '0':
+            task = 'transformer_baseline'
         if args.step == '1' :
             task = 'autoencoder_reconstruction'          
         elif args.step == '2':
