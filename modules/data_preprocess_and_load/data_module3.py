@@ -17,7 +17,8 @@ class fMRIDataModule(pl.LightningDataModule):
         super().__init__()
         self.save_hyperparameters()
         self.kwargs = kwargs
-        self.seed = kwargs.get('seed') # 잘 들어감
+        self.seed = kwargs.get('dataset_split_num') # 잘 들어감
+        self.deterministic = kwargs.get('deterministic')
 
         # generate splits folder
         split_dir_path = os.path.join(self.hparams.base_path,f'data/splits/{self.hparams.dataset_name}')
@@ -82,7 +83,8 @@ class fMRIDataModule(pl.LightningDataModule):
         return
 
     def setup(self, stage=None):
-        #reproducibility(self.kwargs) # Stella added this (originially self.kwargs and it was running.. but why it doesn't work TT)
+        reproducibility(self.seed,deterministic=self.deterministic)
+
         # this function will be called at each devices
         Dataset = self.get_dataset()
         
@@ -176,10 +178,11 @@ class fMRIDataModule(pl.LightningDataModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=True, formatter_class=ArgumentDefaultsHelpFormatter)
         group = parser.add_argument_group("DataModule arguments")
         #group.add_argument("--data_seed", type=int, default=1, help='1,2,3')
-        group.add_argument("--seed", type=int, default=27)
+        #group.add_argument("--seed", type=int, default=27)
+        group.add_argument("--deterministic", action='store_true')
         group.add_argument("--dataset_split_num", type=int, default=1) # dataset split, choose from 1, 2, or 3
         group.add_argument("--dataset_name", type=str, choices=["S1200", "ABCD", "Dummy", "ABCD_timeseries"], default="S1200")
-        group.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD','ADHD','int_total','int_fluid'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD:classification, ADHD:classification, int_***:regression}')
+        group.add_argument('--target', type=str, default='sex', choices=['sex','age','ASD','ADHD','int_total','int_fluid','bmi'],help='fine_tune_task must be specified as follows -- {sex:classification, age:regression, ASD:classification, ADHD:classification, int_***:regression}')
         group.add_argument('--fine_tune_task',
                         default='binary_classification',
                         choices=['regression','binary_classification'],
@@ -198,6 +201,11 @@ class fMRIDataModule(pl.LightningDataModule):
         group.add_argument("--with_voxel_norm",action='store_true', default=False)
         group.add_argument("--use_augmentations", default=False, action='store_true')
         group.add_argument("--tff_split", action='store_true')
+        
+        # added this part for validation
+        # continuous_vars = ['age','bmi','int_total','int_fluid']
+        # if parser.target in continuous_vars:
+        #     parser.fine_tune_task = 'regression'
 
         # group.add_argument("--no_random_TR", default=False, action='store_true')
         # group.add_argument("--cuda", default=True)

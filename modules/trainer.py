@@ -13,8 +13,6 @@ import time
 import pathlib
 import os
 
-
-
 #DDP
 from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
@@ -71,6 +69,13 @@ class Trainer():
         if not self.use_optuna and not self.train_from_scratch:
             self.load_model_checkpoint()
         self.set_model_device() # set DDP or DP after loading checkpoint at CPUs
+
+        #wandb
+        if self.rank == 0:
+            os.environ["WANDB_API_KEY"] = kwargs.get('wandb_key')
+            os.environ["WANDB_MODE"] = kwargs.get('wandb_mode')
+            wandb.init(project='4D fMRI Transformers',entity='fsb',reinit=True, name=self.experiment_title, config=kwargs)
+            wandb.watch(self.model,log='all',log_freq=10)
         
         self.create_optimizer()
         self.lr_handler.set_schedule(self.optimizer)
@@ -136,15 +141,15 @@ class Trainer():
             self.st_epoch = int(self.state_dict['epoch']) + 1
             self.best_loss = self.state_dict['loss_value']
             text = 'Training start from epoch {} and learning rate {}.'.format(self.st_epoch, self.optimizer.param_groups[0]['lr'])
-            if 'AUROC' in self.state_dict:
-                text += 'validation AUROC - {}'.format(self.state_dict['AUROC'])
+            if 'ACC' in self.state_dict:
+                text += 'validation ACC - {}'.format(self.state_dict['ACC'])
             print('Training start from epoch {} and learning rate {}.'.format(self.st_epoch, self.optimizer.param_groups[0]['lr']))
             
         elif self.state_dict:  # if there are weights from previous phase
             text = 'loaded model weights:\nmodel location - {}\nlast learning rate - {}\nvalidation loss - {}\n'.format(
                 self.loaded_model_weights_path, self.state_dict['lr'],self.state_dict['loss_value'])
-            if 'AUROC' in self.state_dict:
-                text += 'validation AUROC - {}'.format(self.state_dict['AUROC'])
+            if 'ACC' in self.state_dict:
+                text += 'validation ACC - {}'.format(self.state_dict['ACC'])
             print(text)
         else:
             pass
@@ -204,36 +209,36 @@ class Trainer():
                     self.model = torch.nn.parallel.DistributedDataParallel(self.model) 
                 else: # having unused parameter (classifier token)
                     self.model = torch.nn.parallel.DistributedDataParallel(self.model,find_unused_parameters=True) 
-                model_without_ddp = self.model.module
+                net_without_ddp = self.model.module
+            
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.model = DataParallel(self.model).to(self.device) if torch.cuda.is_available() else self.model
-            
-        
-
 
     def training(self):
+         
         if self.profiling == True:
             self.nEpochs = 1
         for epoch in range(self.st_epoch,self.nEpochs + 1): 
             start = time.time()
             self.train_epoch(epoch)
-            # if (not self.distributed) or self.rank == 0 :
             self.eval_epoch('val')
-            
+
+            # aggregate and print losses and metrics
             print('______epoch summary {}/{}_____\n'.format(epoch,self.nEpochs))
-            # print losses
             self.writer.loss_summary(lr=self.optimizer.param_groups[0]['lr'])
             self.writer.accuracy_summary(mid_epoch=True)
             self.writer.save_history_to_csv()
 
-            self.writer.register_wandb(epoch, lr=self.optimizer.param_groups[0]['lr'])
+            #wandb
+            if self.rank == 0:
+                self.writer.register_wandb(epoch, lr=self.optimizer.param_groups[0]['lr'])
 
             if self.use_optuna:
-                val_AUROC = self.get_last_AUROC()
-                if val_AUROC > self.best_AUROC:
-                    self.best_AUROC = val_AUROC
-                self.trial.report(val_AUROC, step=epoch-1)
+                val_ACC = self.get_last_ACC()
+                if val_ACC > self.best_ACC:
+                    self.best_ACC = val_ACC
+                self.trial.report(val_ACC, step=epoch-1)
                 if self.trial.should_prune():
                     raise optuna.exceptions.TrialPruned()
             else:
@@ -272,7 +277,7 @@ class Trainer():
                 
                 if  (batch_idx + 1) % self.accumulation_steps == 0: # gradient accumulation
                     # gradient clipping 
-                    if self.gradient_clipping == True:
+                    if self.gradient_clipping:
                         torch.cuda.nvtx.range_push("unscale")
                         self.scaler.unscale_(self.optimizer)
                         torch.cuda.nvtx.range_pop()
@@ -300,25 +305,11 @@ class Trainer():
                 self.optimizer.step()
                 torch.cuda.nvtx.range_pop()
                 self.lr_handler.schedule_check_and_update(self.optimizer)
-            
-            
-            # register losses
-            # synchronize the performances in multiple gpus
-            if self.world_size > 1:
-                for loss_type, value in loss_dict.items():
-                    loss_tensor = torch.tensor([value], dtype=torch.float).to(self.gpu)
-                    dist.all_reduce(loss_tensor)
-                    losses_sum = loss_tensor.item()
-                    loss_dict[loss_type] = losses_sum / self.world_size
-                
+
+            # register train_losses to loss_writer  
             self.writer.write_losses(loss_dict, set='train')
-            
-            #end_time = time.time()
-            #print(f'times taken to execute step {batch_idx}: {end_time-start_time}')
-            #times.append(end_time - start_time)
             torch.cuda.nvtx.range_pop()
             
-
             #for profiling, early stopping
             if self.profiling == True:
                 if batch_idx == 10 : 
@@ -364,16 +355,7 @@ class Trainer():
                 with autocast():
                     loss_dict, _ = self.forward_pass(input_dict)
                     
-                # register losses
-                
-                # synchronize the performances in multiple nodes
-                if self.world_size > 1:
-                    for loss_type, value in loss_dict.items():
-                        loss_tensor = torch.tensor([value], dtype=torch.float).to(self.gpu)
-                        dist.all_reduce(loss_tensor)
-                        losses_sum = loss_tensor.item()
-                        loss_dict[loss_type] = losses_sum / self.world_size
-                
+                # register val/test losses to loss writer
                 self.writer.write_losses(loss_dict, set=set)
                 if self.profiling == True:
                     if batch_idx == 10 : 
@@ -433,7 +415,9 @@ class Trainer():
                 factored_loss = current_loss_value * lamda
                 final_loss_dict[loss_name] = factored_loss.item()
                 final_loss_value += factored_loss
-        final_loss_dict['total'] = final_loss_value.item() # problem occurs here for baseline model
+
+        # make total loss -> it is registered into loss writer
+        final_loss_dict['total'] = final_loss_value.item()
         return final_loss_dict, final_loss_value
         
     def testing(self):
@@ -475,12 +459,13 @@ class Trainer():
             return None
 
     def save_checkpoint_(self, epoch, batch_idx, scaler):
+
         loss = self.get_last_loss()
         #accuracy = self.get_last_AUROC()
         ACC = self.get_last_ACC()
         AUROC = self.get_last_AUROC()
+
         title = str(self.writer.experiment_title) + '_epoch_' + str(int(epoch)) + '_batch_index_'+ str(batch_idx)
-        
         directory = self.writer.experiment_folder
 
         # Create directory to save to
@@ -496,10 +481,10 @@ class Trainer():
             'epoch':epoch,
             'loss_value':loss,
             'amp_state': amp_state}
-
-        #if accuracy is not None:
-        if AUROC is not None:
-            ckpt_dict['AUROC'] = AUROC
+        
+        # if AUROC is not None:
+        if ACC is not None:
+            ckpt_dict['ACC'] = ACC
         if self.lr_handler.schedule is not None:
             ckpt_dict['schedule_state_dict'] = self.lr_handler.schedule.state_dict()
             ckpt_dict['lr'] = self.optimizer.param_groups[0]['lr']
@@ -516,16 +501,17 @@ class Trainer():
         # best loss나 best accuracy를 가진 모델만 저장하는 코드
         # classification
         #if accuracy is not None and self.best_accuracy < accuracy:
-        if AUROC is not None and self.best_AUROC < AUROC:
+        if ACC is not None and self.best_ACC < ACC:
             #self.best_accuracy = accuracy
-            self.best_AUROC = AUROC
+            self.best_ACC = ACC
             #name = "{}_BEST_val_accuracy.pth".format(core_name)
-            name = "{}_BEST_val_AUROC.pth".format(core_name)
+            name = "{}_BEST_val_ACC.pth".format(core_name)
             torch.save(ckpt_dict, os.path.join(directory, name))
-            print(f'updating best saved model with AUROC:{AUROC}')
+            print(f'updating best saved model with ACC:{ACC}')
             #print(f'updating best saved model with accuracy:{accuracy}')
+
         # regression
-        elif AUROC is None and self.best_loss > loss:
+        elif ACC is None and self.best_loss > loss:
             self.best_loss = loss
             name = "{}_BEST_val_loss.pth".format(core_name)
             torch.save(ckpt_dict, os.path.join(directory, name))
@@ -582,11 +568,12 @@ class Trainer():
         score = out.squeeze() if out.shape[0] > 1 else out
         labels = input_dict[self.target].clone().cpu() # input_dict['subject_' + task].clone().cpu()
         subjects = input_dict['subject'] #.clone().cpu()
-        for i, subj in enumerate(subjects):
+        for i, subj in enumerate(subjects): # subjects : subjects in the batch
             subject = str(subj) #.item())
             if subject not in self.writer.subject_accuracy:
                 self.writer.subject_accuracy[subject] = {'score': score[i].unsqueeze(0), 'mode': self.mode, 'truth': labels[i],'count': 1}
             else:
+                # score[i].unsqueeze(0) denotes a logit for the sequence
                 self.writer.subject_accuracy[subject]['score'] = torch.cat([self.writer.subject_accuracy[subject]['score'], score[i].unsqueeze(0)], dim=0)
                 self.writer.subject_accuracy[subject]['count'] += 1
 

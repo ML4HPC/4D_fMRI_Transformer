@@ -36,7 +36,7 @@ def get_intense_voxels(yy,shape,gpu):
     
     to_quantile = 1 - ((y1>y1[:,0:1]).sum(dim=1) / y1.shape[1] * (1-low_quantile))
     
-    voxels = (y1 > torch.quantile(y1, to_quantile, dim=1).diag().unsqueeze(1))
+    voxels = (y1 > torch.quantile(y1.float(), to_quantile.float(), dim=1).diag().unsqueeze(1))
     
     xx1 = voxels.view(b,t,h,d,w).permute(0,2,3,4,1).view(shape)>0
     

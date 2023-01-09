@@ -22,19 +22,22 @@ class Writer():
         self.register_losses(**kwargs)
         self.create_score_folders()
         self.metrics = Metrics()
+        self.current_metrics = {}
         self.sets = sets
         self.total_train_steps = 0
         self.eval_iter = 0
         self.subject_accuracy = {}
         self.tensorboard = SummaryWriter(log_dir=self.tensorboard_dir, comment=self.experiment_title)
+        # total loss 
         for set in sets:
-            setattr(self,'total_{}_loss_values'.format(set),[])
-            setattr(self,'total_{}_loss_history'.format(set),[])
+            setattr(self,'total_{}_loss_values'.format(set),[]) # losses of each iteration
+            setattr(self,'total_{}_loss_history'.format(set),[]) # losses of each epoch
+        # each loss
         for name, loss_dict in self.losses.items():
             if loss_dict['is_active']:
                 for set in sets:
-                    setattr(self, '{}_{}_loss_values'.format(name,set),[])
-                    setattr(self, '{}_{}_loss_history'.format(name,set),[]) # self.total_val_loss_history = []
+                    setattr(self, '{}_{}_loss_values'.format(name,set),[]) # losses of each iteration
+                    setattr(self, '{}_{}_loss_history'.format(name,set),[]) # losses of each epoch
 
     def create_score_folders(self):
         self.tensorboard_dir = Path(os.path.join(self.log_dir, self.experiment_title))
@@ -45,8 +48,16 @@ class Writer():
             os.makedirs(self.per_subject_predictions, exist_ok=True)
 
     def save_history_to_csv(self):
+        # save train/val losses to csv file
         rows = [getattr(self, x) for x in dir(self) if 'history' in x and isinstance(getattr(self, x), list)]
         column_names = tuple([x for x in dir(self) if 'history' in x and isinstance(getattr(self, x), list)])
+
+        # save current metrics (Acc,AUROC) to csv file
+        # for name,value in self.current_metrics.items():
+        #     column_names.append(name)
+        #     rows += value.append(value)
+        # column_names = tuple(column_names)
+
         export_data = zip_longest(*rows, fillvalue='')
         with open(os.path.join(self.csv_path, 'full_scores.csv'), 'w', encoding="ISO-8859-1", newline='') as myfile:
             wr = csv.writer(myfile)
@@ -55,18 +66,31 @@ class Writer():
 
     def loss_summary(self,lr):
         self.scalar_to_tensorboard('learning_rate',lr,self.total_train_steps)
-        loss_d = self.append_total_to_losses() # where are you?
+        loss_d = self.append_total_to_losses() 
         for name, loss_dict in loss_d.items():
             # name : perceptual, reconstruction, ...
+            # 여기 worldsize >2 조건 넣기
             if loss_dict['is_active']:
                 for set in self.sets:
                     title = name + '_' + set
-                    values = getattr(self,title + '_loss_values') # in list
+                    values = getattr(self,title + '_loss_values') # losses for each iteration
                     if len(values) == 0:
                         continue
                     score = np.mean(values)
-                    history = getattr(self,title + '_loss_history')
+
+                    # gather losses over every rank for DDP case
+                    # synchronize the performances in multiple nodes
+                    if self.world_size > 1:
+                        loss_tensor = torch.tensor([score], dtype=torch.float).to(self.gpu)
+                        # dist.reduce(loss_tensor, 0, dist.ReduceOp.SUM) # reduce only to rank 0
+                        dist.all_reduce(loss_tensor) # reduce and broadcast to whole ranks
+                        losses_sum = loss_tensor.item()
+                        score = losses_sum / self.world_size
+
+                    history = getattr(self,title + '_loss_history') # losses for each epoch
                     history.append(score)
+
+                    # print each losses
                     print('{}: {}'.format(title,score))
                     setattr(self,title + '_loss_history',history)
                     self.scalar_to_tensorboard(title,score)
@@ -76,7 +100,8 @@ class Writer():
         truth_all_sets = {x:[] for x in self.sets}
         metrics = {}
         for subj_name,subj_dict in self.subject_accuracy.items():
-            subj_pred = subj_dict['score'].mean().item()
+            # subj_dict['score'] denotes the logits for sequences for a subject
+            subj_pred = subj_dict['score'].mean().item() 
             subj_error = subj_dict['score'].std().item()
             # there exists several subj_dict['score'] -> 4809개. 1개의 subject에 여러 개의 prediction을 함.
             ## 얘네들이 만들어낸 데이터를 가지고 stacking classifier에 넣어서 학습 시킨 다음에 valid로 fit 하는 구조! sklearn 가져다 쓰기 < 내가 구현하기
@@ -88,12 +113,14 @@ class Writer():
             truth_all_sets[subj_mode].append(subj_truth)
         for (name,pred),(_,truth) in zip(pred_all_sets.items(),truth_all_sets.items()):
             # name : train, val, test
-            # gather
+            # gather logits over every rank for DDP case
             if self.world_size > 1:
                 preds = [None for _ in range(self.world_size)]
                 truths = [None for _ in range(self.world_size)]
-                dist.all_gather_object(preds,pred)
-                dist.all_gather_object(truths,truth)
+                # dist.gather_object(pred,preds if dist.get_rank== 0 else None, dst=0) # gather only to rank 0
+                # dist.gather_object(truth,truths if dist.get_rank== 0 else None, dst=0) # gather only to rank 0
+                dist.all_gather_object(preds,pred) # gather and broadcast to whole ranks
+                dist.all_gather_object(truths,truth) # gather and broadcast to whole ranks
                 pred = sum(preds, [])
                 truth = sum(truths, [])
             # print('len(pred)',len(pred))
@@ -110,9 +137,10 @@ class Writer():
                 metrics[name + '_Balanced_Accuracy'] = self.metrics.BAC(truth,[x>0.5 for x in pred])
                 metrics[name + '_Regular_Accuracy'] = self.metrics.RAC(truth,[x>0.5 for x in pred])
                 metrics[name + '_AUROC'] = self.metrics.AUROC(truth,pred)
+            self.current_metrics = metrics
 
         for name,value in metrics.items():
-            self.scalar_to_tensorboard(name,value) #여기서 tf events 파일이 옴
+            self.scalar_to_tensorboard(name,value)
             if hasattr(self,name):
                 l = getattr(self,name)
                 l.append(value)
@@ -126,6 +154,8 @@ class Writer():
         else:
             self.subject_accuracy = {}
 
+
+    # run after each epoch
     def register_wandb(self,epoch, lr):
         wandb_result = {}
         wandb_result['epoch'] = epoch
@@ -143,14 +173,14 @@ class Writer():
         wandb_result.update(self.current_metrics)
         wandb.log(wandb_result)
 
+    # run at the end of each iteration
     def write_losses(self,final_loss_dict,set):
         for loss_name,loss_value in final_loss_dict.items():
             title = loss_name + '_' + set
-            #print('title of write_losses is:', title) #이게 validation 48118개에서 하나씩 계속 계산됨.
             loss_values_list = getattr(self,title + '_loss_values')
             loss_values_list.append(loss_value)
             if set == 'train':
-                loss_values_list = loss_values_list[-self.running_mean_size:]
+                loss_values_list = loss_values_list[-self.running_mean_size:] # keep losses of recent 'self.running_mean_size' iterations
             setattr(self,title + '_loss_values',loss_values_list)
 
     def register_args(self,**kwargs):
@@ -177,7 +207,7 @@ class Writer():
             #self.losses['intensity']['is_active'] = True
             self.losses['perceptual']['is_active'] = True
             self.losses['reconstruction']['is_active'] = True
-            if kwargs.get('use_intensity_loss'):
+            if kwargs.get('with_voxel_norm') and kwargs.get('use_intensity_loss'):
                 self.losses['intensity']['is_active'] = True
             if 'tran' in kwargs.get('task').lower() and kwargs.get('use_cont_loss'):
                 self.losses['contrastive']['is_active'] = True

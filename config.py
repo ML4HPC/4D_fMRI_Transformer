@@ -28,6 +28,10 @@ def get_arguments(base_path):
     parser.add_argument('--n_warmup_steps', default=5, help='argument for MedianPruner, epoch is same as step in our code. Pruning is disabled until the trial exceeds the given number of step. Note that this feature assumes that step starts at zero.')
     parser.add_argument('--interval_steps', default=1, help='argument for MedianPruner, Interval in number of steps between the pruning checks, offset by the warmup steps. If no value has been reported at the time of a pruning check, that particular check will be postponed until a value is reported.')
     
+    #wandb related
+    parser.add_argument('--wandb_key', default='f7037d2b44344b87ead3639d94ad670584c0c6a2', type=str,  help='default: key for Junbeom')
+    parser.add_argument('--wandb_mode', default='online', type=str,  help='online|offline')
+
     # optuna related - config for hyperparameter (script 단에서 조절할 수 있도록 함)
     parser.add_argument('--hyp_batch_size', action='store_true')
     parser.add_argument('--hyp_lr_gamma', action='store_true')
@@ -151,9 +155,6 @@ def get_arguments(base_path):
     parser.add_argument('--lr_warmup_phase2', type=int, default=500)
     parser.add_argument('--lr_T_mult_phase2', type=int, default=2)
     parser.add_argument('--model_weights_path_phase1', default=None)
-
-    
-    
 
     ##phase 3
     parser.add_argument('--task_phase3', type=str, default='fine_tune')
